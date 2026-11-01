@@ -1,0 +1,42 @@
+--- a/runloop.c
++++ b/runloop.c
+@@ -6001,21 +6001,28 @@
+    {
+       static bool old_pressed = false;
+       static bool hold_handled = false;
++      static bool old_held = false;
+       static retro_time_t pressed_at = 0;
++      bool held = (input_st->flags & INP_FLAG_MENU_PRESS_PENDING)
++            && !(input_st->flags & INP_FLAG_MENU_PRESS_CANCEL)
++            && !menu_driver_binding_state
++            && !menu_st->input_driver_flushing_input;
+       bool toggle_menu;
+       bool pressed            = BIT256_GET(current_bits, RARCH_MENU_TOGGLE)
+             && !string_is_equal(settings->arrays.menu_driver, "null");
+       bool core_type_is_dummy = runloop_st->current_core_type == CORE_TYPE_DUMMY;
+ 
+-      if (pressed && !old_pressed)
++      if (held && !old_held)
+       {
+          pressed_at   = current_time;
+          hold_handled = false;
+       }
+-      if (pressed && !hold_handled && !core_type_is_dummy
++      old_held = held;
++      if (held && !hold_handled && !core_type_is_dummy
+             && current_time - pressed_at >= 1000000)
+       {
+          hold_handled = true;
++         input_st->flags |= INP_FLAG_MENU_PRESS_CANCEL;
+          content_wait_for_save_state_task();
+          if (command_event_save_auto_state())
+             command_event(CMD_EVENT_QUIT, NULL);
+@@ -6026,7 +6033,7 @@
+                   NULL, MESSAGE_QUEUE_ICON_DEFAULT, MESSAGE_QUEUE_CATEGORY_WARNING);
+          }
+       }
+-      toggle_menu = !pressed && old_pressed && !hold_handled;
++      toggle_menu = pressed && !old_pressed && !hold_handled;
+       if (toggle_menu)
+       {
+          bool core_is_running    = runloop_st->flags & RUNLOOP_FLAG_CORE_RUNNING;

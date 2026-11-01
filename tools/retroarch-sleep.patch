@@ -1,0 +1,33 @@
+--- a/runloop.c
++++ b/runloop.c
+@@ -6003,6 +6003,12 @@
+    if (runloop_st->current_core_type != CORE_TYPE_DUMMY)
+       socket_menu_poweroff(current_time);
+ 
++   if (socket_sleep.held && !socket_sleep.failed)
++   {
++      video_driver_cached_frame();
++      return RUNLOOP_STATE_MENU;
++   }
++
+    /* Check menu hotkey */
+    {
+       static bool old_pressed = false;
+@@ -6030,7 +6036,7 @@
+          hold_handled = true;
+          input_st->flags |= INP_FLAG_MENU_PRESS_CANCEL;
+          content_wait_for_save_state_task();
+-         if (command_event_save_auto_state())
++         if (socket_sleep.failed || command_event_save_auto_state())
+             command_event(CMD_EVENT_QUIT, NULL);
+          else
+          {
+@@ -6061,6 +6067,8 @@
+ #endif
+ 
+ #ifdef HAVE_MENU
++   if (socket_sleep.failed && !(menu_st->flags & MENU_ST_FLAG_ALIVE))
++      retroarch_menu_running();
+    if (!(menu_st->flags & MENU_ST_FLAG_ALIVE))
+       socket_menu.active = false;
+    else if (runloop_st->current_core_type != CORE_TYPE_DUMMY && !socket_menu.active)

@@ -1,0 +1,194 @@
+--- a/audio/audio_driver.c
++++ b/audio/audio_driver.c
+@@ -22,6 +22,7 @@
+ #include <memalign.h>
+ 
+ #include "audio_driver.h"
++#include "../socket_controls.h"
+ 
+ #include <retro_assert.h>
+ #include <string/stdstring.h>
+@@ -450,12 +451,20 @@
+       const int16_t *data, size_t samples,
+       bool is_slowmotion, bool is_fastforward)
+ {
++   static socket_controls_t controls;
+    struct resampler_data src_data;
+    float audio_volume_gain           =
+          (audio_st->mute_enable || audio_st->flags & AUDIO_FLAG_MUTED)
+                ? 0.0f
+                : audio_st->volume_gain;
+ 
++   socket_controls_poll(&controls, cpu_features_get_time_usec());
++   if (controls.valid && !audio_st->mute_enable && !(audio_st->flags & AUDIO_FLAG_MUTED))
++   {
++      float level = controls.volume / 100.0f;
++      audio_volume_gain = level * level;
++   }
++
+    src_data.data_out                 = NULL;
+    src_data.output_frames            = 0;
+    /* We'll assign a proper output to the resampler later in this function */
+@@ -578,6 +587,12 @@
+ 
+    audio_st->resampler->process(audio_st->resampler_data, &src_data);
+ 
++   /* A muted flush also drops the resampler tail of earlier samples. Sleep
++    * and timed shutdown mute the game, so a resumed process stays silent. */
++   if (audio_volume_gain == 0.0f)
++      memset(audio_st->output_samples_buf, 0,
++            src_data.output_frames * 2 * sizeof(float));
++
+ #ifdef HAVE_AUDIOMIXER
+    if (audio_st->flags & AUDIO_FLAG_MIXER_ACTIVE)
+    {
+--- a/gfx/drivers/gl2.c
++++ b/gfx/drivers/gl2.c
+@@ -30,6 +30,8 @@
+ #endif
+ #endif
+ 
++#include "../../socket_controls.h"
++#include "../../socket_control_icons.h"
+ #include <stdint.h>
+ #include <stdlib.h>
+ #include <math.h>
+@@ -3346,7 +3348,109 @@
+    gl->coords.color       = gl->white_color_ptr;
+ }
+ #endif
++
++static void gl2_socket_quad(gl2_t *gl, GLuint texture, float x, float y,
++      float width, float height, float red, float green, float blue, float alpha)
++{
++   unsigned i;
++   GLfloat colors[16];
++   GLfloat left = x / gl->video_width;
++   GLfloat right = (x + width) / gl->video_width;
++   GLfloat top = 1.0f - y / gl->video_height;
++   GLfloat bottom = 1.0f - (y + height) / gl->video_height;
++   GLfloat vertices[8] = {left, top, right, top, left, bottom, right, bottom};
++   video_coords_t coords = gl->coords;
++   for (i = 0; i < 4; i++)
++   {
++      colors[4*i] = red;
++      colors[4*i+1] = green;
++      colors[4*i+2] = blue;
++      colors[4*i+3] = alpha;
++   }
++   coords.vertex = vertices;
++   coords.tex_coord = tex_coords;
++   coords.color = colors;
++   coords.vertices = 4;
++   glBindTexture(GL_TEXTURE_2D, texture);
++   gl->shader->set_coords(gl->shader_data, &coords);
++   gl->shader->set_mvp(gl->shader_data, &gl->mvp_no_rot);
++   glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
++}
+ 
++static void gl2_socket_controls(gl2_t *gl)
++{
++   static socket_controls_t controls;
++   const unsigned char white[] = {255, 255, 255, 255};
++   const unsigned char *icon;
++   GLuint icon_texture;
++   int64_t now = cpu_features_get_time_usec();
++   int64_t age;
++   float alpha, level, bar_x = (gl->video_width - 320.0f) / 2.0f;
++   float warmth;
++   bool hud;
++   socket_controls_poll(&controls, now);
++   age = now - controls.shown_at;
++   hud = controls.shown_at && age < 1500000;
++   if (!hud && !controls.temperature)
++      return;
++   /* One white texture per GL context serves every solid quad and the tint. */
++   if (!gl->socket_white)
++   {
++      glGenTextures(1, &gl->socket_white);
++      glBindTexture(GL_TEXTURE_2D, gl->socket_white);
++      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
++      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
++      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
++   }
++   gl->shader->use(gl, gl->shader_data, VIDEO_SHADER_STOCK_BLEND, true);
++   glViewport(0, 0, gl->video_width, gl->video_height);
++   glEnable(GL_BLEND);
++   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
++   glBlendEquation(GL_FUNC_ADD);
++   if (hud)
++   {
++      alpha = age < 1250000 ? 1.0f : (1500000 - age) / 250000.0f;
++      level = controls.kind == 2 ? controls.brightness / 9.0f :
++         controls.kind == 3 ? controls.temperature / 9.0f : controls.volume / 100.0f;
++      icon = controls.kind == 2 ? socket_control_icon_brightness :
++         controls.kind == 3 ? socket_control_icon_temperature :
++         (controls.volume ? socket_control_icon_volume : socket_control_icon_volume_zero);
++      gl2_socket_quad(gl, gl->socket_white, 0, 0, gl->video_width, 40, 0, 0, 0, .72f * alpha);
++      gl2_socket_quad(gl, gl->socket_white, bar_x, 17, 320, 6, 1, 1, 1, .18f * alpha);
++      if (level > 0)
++         gl2_socket_quad(gl, gl->socket_white, bar_x, 17, 320 * level, 6,
++               245/255.0f, 242/255.0f, 239/255.0f, alpha);
++      /* The icon texture exists only while the 1.5 second overlay is visible. */
++      glGenTextures(1, &icon_texture);
++      glBindTexture(GL_TEXTURE_2D, icon_texture);
++      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
++      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
++      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, SOCKET_CONTROL_ICON_WIDTH,
++            SOCKET_CONTROL_ICON_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, icon);
++      gl2_socket_quad(gl, icon_texture, bar_x - 10 - SOCKET_CONTROL_ICON_WIDTH,
++            (40 - SOCKET_CONTROL_ICON_HEIGHT) / 2.0f,
++            SOCKET_CONTROL_ICON_WIDTH, SOCKET_CONTROL_ICON_HEIGHT, 1, 1, 1, alpha);
++      glDeleteTextures(1, &icon_texture);
++   }
++   if (controls.temperature)
++   {
++      /* Slot grade.rs: multiply the whole frame, HUD included, toward [1, .82, .62]. */
++      warmth = controls.temperature / 9.0f;
++      glBlendFunc(GL_DST_COLOR, GL_ZERO);
++      gl2_socket_quad(gl, gl->socket_white, 0, 0, gl->video_width, gl->video_height,
++            1.0f, 1.0f - .18f * warmth, 1.0f - .38f * warmth, 1.0f);
++      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
++   }
++   glDisable(GL_BLEND);
++   glViewport(gl->vp.x, gl->vp.y, gl->vp.width, gl->vp.height);
++   gl->shader->set_coords(gl->shader_data, &gl->coords);
++   gl->shader->set_mvp(gl->shader_data, &gl->mvp);
++}
++
+ static void gl2_pbo_async_readback(gl2_t *gl)
+ {
+ #ifdef HAVE_OPENGLES
+@@ -3633,6 +3737,8 @@
+          gl2_render_osd_background(gl, video_scale_integer, msg);
+       font_driver_render_msg(gl, msg, NULL, NULL);
+    }
++
++   gl2_socket_controls(gl);
+ 
+    if (gl->ctx_driver->update_window_title)
+       gl->ctx_driver->update_window_title(gl->ctx_data);
+@@ -3785,6 +3891,9 @@
+       glDeleteTextures(1, &gl->menu_texture);
+ #endif
+ 
++   if (gl->socket_white)
++      glDeleteTextures(1, &gl->socket_white);
++
+ #ifdef HAVE_OVERLAY
+    gl2_free_overlay(gl);
+ #endif
+--- a/gfx/common/gl2_common.h
++++ b/gfx/common/gl2_common.h
+@@ -208,6 +208,7 @@
+    int version_major;
+    int version_minor;
+ 
++   GLuint socket_white;
+    GLuint tex_mag_filter;
+    GLuint tex_min_filter;
+    GLuint fbo_feedback;

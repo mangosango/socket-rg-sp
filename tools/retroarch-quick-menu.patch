@@ -1,0 +1,185 @@
+--- a/runloop.c
++++ b/runloop.c
+@@ -242,6 +242,9 @@
+ #if HAVE_GAME_AI
+ #include "ai/game_ai.h"
+ #endif
++
++#define SOCKET_QUICK_MENU_IMPLEMENTATION
++#include "socket_quick_menu.h"
+ 
+ #define SHADER_FILE_WATCH_DELAY_MSEC 500
+ 
+@@ -5997,6 +6000,9 @@
+    }
+ 
+ #ifdef HAVE_MENU
++   if (runloop_st->current_core_type != CORE_TYPE_DUMMY)
++      socket_menu_poweroff(current_time);
++
+    /* Check menu hotkey */
+    {
+       static bool old_pressed = false;
+@@ -6054,6 +6060,13 @@
+    }
+ #endif
+ 
++#ifdef HAVE_MENU
++   if (!(menu_st->flags & MENU_ST_FLAG_ALIVE))
++      socket_menu.active = false;
++   else if (runloop_st->current_core_type != CORE_TYPE_DUMMY && !socket_menu.active)
++      socket_menu_open();
++#endif
++
+ #if defined(HAVE_MENU) || defined(HAVE_GFX_WIDGETS)
+    gfx_animation_update(
+          current_time,
+@@ -6102,7 +6115,7 @@
+ 
+       bits_clear_bits(trigger_input.data, old_input.data,
+             ARRAY_SIZE(trigger_input.data));
+-      action                    = (enum menu_action)menu_event(
++      action = socket_quick_menu_active() ? socket_menu_input(&current_bits, current_time) : (enum menu_action)menu_event(
+             settings,
+             &current_bits, &trigger_input, display_kb);
+ #ifdef HAVE_NETWORKING
+@@ -6153,6 +6166,15 @@
+                menu_st->action_press_time = 0;
+             }
+          }
++      }
++
++      if (socket_quick_menu_active())
++      {
++         socket_menu_iterate(action);
++         old_input = current_bits;
++         old_action = action;
++         video_driver_cached_frame();
++         return RUNLOOP_STATE_MENU;
+       }
+ 
+       /* Check whether menu screensaver should be enabled */
+--- a/gfx/drivers/gl2.c
++++ b/gfx/drivers/gl2.c
+@@ -30,6 +30,7 @@
+ #endif
+ #endif
+ 
++#include "../../socket_quick_menu.h"
+ #include "../../socket_controls.h"
+ #include "../../socket_control_icons.h"
+ #include <stdint.h>
+@@ -3451,6 +3452,75 @@
+    gl->shader->set_mvp(gl->shader_data, &gl->mvp);
+ }
+ 
++
++static void gl2_socket_menu_text(gl2_t *gl, const char *text, float y, float scale)
++{
++   struct font_params params = {0};
++   params.x = 60.0f / 720.0f;
++   params.y = 1.0f - y / 480.0f;
++   params.scale = scale;
++   params.color = 0xffffffff;
++   params.full_screen = true;
++   font_driver_render_msg(gl, text, &params, NULL);
++}
++
++static void gl2_socket_menu(gl2_t *gl)
++{
++   const unsigned char white[] = {255, 255, 255, 255};
++   GLuint texture;
++   unsigned row, count, selected, first;
++   float x = gl->video_width / 720.0f;
++   float y = gl->video_height / 480.0f;
++   float font_size = config_get_ptr()->floats.video_font_size;
++   float scale = 22.0f * y / (font_size > 0 ? font_size : 32.0f);
++   GLint viewport[4], previous_texture;
++   GLboolean blend;
++   char text[512];
++   if (!socket_quick_menu_active()) return;
++   count = socket_quick_menu_count();
++   selected = socket_quick_menu_selection();
++   first = selected >= 10 ? selected - 9 : 0;
++   glGetIntegerv(GL_VIEWPORT, viewport);
++   glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous_texture);
++   blend = glIsEnabled(GL_BLEND);
++   gl->shader->use(gl, gl->shader_data, VIDEO_SHADER_STOCK_BLEND, true);
++   glViewport(0, 0, gl->video_width, gl->video_height);
++   glEnable(GL_BLEND);
++   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
++   glBlendEquation(GL_FUNC_ADD);
++   glGenTextures(1, &texture);
++   glBindTexture(GL_TEXTURE_2D, texture);
++   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
++   gl2_socket_quad(gl, texture, 0, 0, gl->video_width, gl->video_height,
++         0, 0, 0, .96f);
++   gl2_socket_quad(gl, texture, 44*x, (99+(selected-first)*30)*y, 632*x, 29*y, 1, 1, 1, 1);
++   gl2_socket_quad(gl, texture, 46*x, (101+(selected-first)*30)*y, 628*x, 25*y,
++         0, 0, 0, 1);
++   glDeleteTextures(1, &texture);
++   glBindTexture(GL_TEXTURE_2D, previous_texture);
++   if (!blend) glDisable(GL_BLEND);
++   glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
++   gl->shader->set_coords(gl->shader_data, &gl->coords);
++   gl->shader->set_mvp(gl->shader_data, &gl->mvp);
++   gl2_socket_menu_text(gl, socket_quick_menu_title(), 76, scale * 1.5f);
++   for (row = first; row < count && row < first + 10; row++)
++   {
++      size_t length;
++      socket_quick_menu_label(row, text, sizeof(text));
++      length = strlen(text);
++      while (length && font_driver_get_message_width(NULL, text, length, scale) > 595*x)
++      {
++         do { length--; } while (length && ((unsigned char)text[length] & 0xc0) == 0x80);
++         text[length] = '\0';
++      }
++      gl2_socket_menu_text(gl, text, 120+(row-first)*30, scale);
++   }
++   gl2_socket_menu_text(gl, socket_quick_menu_status(), 430, scale * .5f);
++   gl2_socket_menu_text(gl, "A  Select    B  Back    Left / Right  Change", 458, scale * .5f);
++}
++
+ static void gl2_pbo_async_readback(gl2_t *gl)
+ {
+ #ifdef HAVE_OPENGLES
+@@ -3706,7 +3776,7 @@
+ #endif
+ 
+ #if defined(HAVE_MENU)
+-   if (gl->flags & GL2_FLAG_MENU_TEXTURE_ENABLE)
++   if ((gl->flags & GL2_FLAG_MENU_TEXTURE_ENABLE) && !socket_quick_menu_active())
+    {
+       menu_driver_frame(menu_is_alive, video_info);
+ 
+@@ -3725,6 +3795,8 @@
+    if ((gl->flags & GL2_FLAG_OVERLAY_ENABLE) && !overlay_behind_menu)
+       gl2_render_overlay(gl);
+ #endif
++
++   gl2_socket_menu(gl);
+ 
+ #ifdef HAVE_GFX_WIDGETS
+    if (widgets_active)
+--- a/tasks/task_save.c
++++ b/tasks/task_save.c
+@@ -1,3 +1,4 @@
++#include "../socket_quick_menu.h"
+ /*  RetroArch - A frontend for libretro.
+  *  Copyright (C) 2011-2017 - Daniel De Matteis
+  *  Copyright (C) 2016-2019 - Brad Parker
+@@ -1108,10 +1109,12 @@
+ 
+    free(buf);
+    free(load_data);
++   socket_quick_menu_load_result(true);
+ 
+    return;
+ 
+ error:
++   socket_quick_menu_load_result(false);
+    RARCH_ERR("[State] %s \"%s\".\n",
+          msg_hash_to_str(MSG_FAILED_TO_LOAD_STATE),
+          load_data->path);

@@ -1,0 +1,7 @@
+slot-lcd.glsl adapts the LCD3x and grid effects from Slot:
+https://github.com/BrandonKowalski/slot, crates/slot-gfx/src/shaders.rs, GAME_FRAG.
+The adaptation uses RetroArch texture and viewport uniforms. It does not include
+Slot's screen layout, bezel, brightness, or final display color adjustments.
+
+Slot source license: GNU GPL version 3 or later. See COPYING.
+LCD3x math: Gigaherz, public domain, as identified in Slot licenses/shaders.txt.

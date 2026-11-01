@@ -1,0 +1,62 @@
+diff --git a/platform/linuxbsd/SCsub b/platform/linuxbsd/SCsub
+index 87586c5..d4e397b 100644
+--- a/platform/linuxbsd/SCsub
++++ b/platform/linuxbsd/SCsub
+@@ -27,6 +27,9 @@ if env["x11"]:
+ if env["wayland"]:
+     common_linuxbsd += SConscript("wayland/SCsub")
+ 
++if env["fbdev"]:
++    common_linuxbsd.append("fbdev/display_server_fbdev.cpp")
++
+ if env["speechd"]:
+     common_linuxbsd.append("tts_linux.cpp")
+     if env["use_sowrap"]:
+diff --git a/platform/linuxbsd/detect.py b/platform/linuxbsd/detect.py
+index cb86815..45bcc1e 100644
+--- a/platform/linuxbsd/detect.py
++++ b/platform/linuxbsd/detect.py
+@@ -64,6 +64,7 @@ def get_opts():
+         BoolVariable("udev", "Use udev for gamepad connection callbacks", True),
+         BoolVariable("x11", "Enable X11 display", True),
+         BoolVariable("wayland", "Enable Wayland display", True),
++        BoolVariable("fbdev", "Enable Mali fbdev EGL display (BaseOS handhelds)", False),
+         BoolVariable("libdecor", "Enable libdecor support", True),
+         BoolVariable("touch", "Enable touch events", True),
+         BoolVariable("execinfo", "Use libexecinfo on systems where glibc is not available", False),
+@@ -547,6 +548,9 @@ def configure(env: "SConsEnvironment"):
+     if env["opengl3"]:
+         env.Append(CPPDEFINES=["GLES3_ENABLED"])
+ 
++    if env["fbdev"]:
++        env.Append(CPPDEFINES=["FBDEV_ENABLED"])
++
+     env.Append(LIBS=["pthread"])
+ 
+     if platform.system() == "Linux":
+diff --git a/platform/linuxbsd/os_linuxbsd.cpp b/platform/linuxbsd/os_linuxbsd.cpp
+index 43d7129..7e4a0dc 100644
+--- a/platform/linuxbsd/os_linuxbsd.cpp
++++ b/platform/linuxbsd/os_linuxbsd.cpp
+@@ -54,6 +54,10 @@
+ #include "wayland/display_server_wayland.h"
+ #endif
+ 
++#ifdef FBDEV_ENABLED
++#include "fbdev/display_server_fbdev.h"
++#endif
++
+ #include "modules/modules_enabled.gen.h" // For regex.
+ #ifdef MODULE_REGEX_ENABLED
+ #include "modules/regex/regex.h"
+@@ -1312,6 +1316,10 @@ OS_LinuxBSD::OS_LinuxBSD() {
+ 	DisplayServerWayland::register_wayland_driver();
+ #endif
+ 
++#ifdef FBDEV_ENABLED
++	DisplayServerFbdev::register_fbdev_driver();
++#endif
++
+ #ifdef FONTCONFIG_ENABLED
+ #ifdef SOWRAP_ENABLED
+ #ifdef DEBUG_ENABLED

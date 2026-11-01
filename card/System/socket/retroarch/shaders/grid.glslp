@@ -1,0 +1,5 @@
+shaders = "1"
+shader0 = "slot-lcd.glsl"
+filter_linear0 = "false"
+parameters = "SLOT_GRID"
+SLOT_GRID = "1.0"
