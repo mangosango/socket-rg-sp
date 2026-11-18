@@ -6,6 +6,7 @@ extends Node
 
 signal folder_selected(uri: String)
 signal apps_changed
+signal second_screen_freed
 
 var installed_app_list: Dictionary = {}
 
@@ -17,12 +18,20 @@ var _playing: bool = false
 
 
 func _enter_tree() -> void:
+	get_tree().node_added.connect(_on_dialog_added)
 	# Keep cartridge shadows without a 4096-pixel atlas on the handheld GPU.
 	RenderingServer.directional_shadow_atlas_set_size(1024, true)
 	AudioServer.set_bus_volume_db(0, -20.0)
 	# A boot resume goes into the game at once. Keep the launcher silent until then.
 	if OS.get_environment("SOCKET_RESUME_BOOT") == "1":
 		AudioServer.set_bus_mute(0, true)
+
+
+func _on_dialog_added(node: Node) -> void:
+	if node is AcceptDialog:
+		var controller := preload("res://addons/FrontendPlugin/controller_dialog.gd").new()
+		controller.name = "ControllerDialog"
+		node.add_child.call_deferred(controller)
 
 
 func _ready() -> void:
@@ -40,6 +49,14 @@ func _resume_boot_game() -> void:
 	OS.unset_environment("SOCKET_RESUME_BOOT")
 	await get_tree().process_frame
 	await get_tree().process_frame
+	# A resumed game can hide fbdev; finish startup draws before launching it.
+	while OS.get_name() == "Linux" and ResourceLoader.exists("res://addons/FrontendPlugin/shader_startup.gd"):
+		var scene := get_tree().current_scene
+		if scene == null or scene.scene_file_path not in ["res://scenes/boot.tscn", "res://scenes/main.tscn"]:
+			break
+		if get_tree().root.get_meta("socket_shader_startup_complete", false):
+			break
+		await get_tree().process_frame
 	_run_game("resume_game.sh", PackedStringArray(), "Resume")
 	# The launcher did not start this session, so it must not count its playtime.
 	DirAccess.remove_absolute(_run_dir.path_join("session_seconds"))
@@ -101,7 +118,7 @@ func get_foreground_seconds(_package_name: String, since_seconds_ago: int) -> in
 	return mini(seconds, since_seconds_ago)
 
 
-func launch_app_with_params(_app_id: String, _params: Dictionary) -> void:
+func launch_app_with_params(_app_id: String, _params: Dictionary, _screen: String = "") -> void:
 	pass
 
 
@@ -180,7 +197,19 @@ func _run_game(script: String, arguments: PackedStringArray, label: String) -> v
 		_quit_for_poweroff()
 
 
-func show_second_screen_hold(_image_path: String, _dim: float, _show_timer: bool) -> bool:
+func is_second_screen_usable() -> bool:
+	return false
+
+
+func kill_package_processes(_package_name: String) -> void:
+	pass
+
+
+func get_sdk_version() -> int:
+	return 0
+
+
+func show_second_screen_hold(_image_path: String, _dim: float, _show_timer: bool, _title: String = "") -> bool:
 	return false
 
 

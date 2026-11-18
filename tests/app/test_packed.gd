@@ -24,6 +24,11 @@ func _run() -> void:
 	# GUIDE ignores events from devices that have not connected.
 	joy_device = root.get_node("GUIDE")._input_state.connect_virtual_stick(0)
 	await load(get_script().resource_path.get_base_dir().path_join("test_controls.gd")).new().run(self, root.get_node("FrontendBridge"))
+	var bridge = root.get_node("FrontendBridge")
+	if not require(bridge.has_signal("second_screen_freed") and not bridge.is_second_screen_usable(), "Android second screen stays unavailable"): return
+	if not require(bridge.get_sdk_version() == 0 and not bridge.show_second_screen_hold("", 0.0, false, "title"), "new bridge calls return no-plugin defaults"): return
+	bridge.launch_app_with_params("unused", {}, "second")
+	bridge.kill_package_processes("unused")
 	var settings = root.get_node("SettingsManager")
 	if not require(settings.get_setting("ui_sounds_enabled") == false, "saved mute setting loaded at startup"): return
 	var bus: int = AudioServer.get_bus_index("sfx")
@@ -32,9 +37,17 @@ func _run() -> void:
 	database.store("gba", [{"uniqueId": "gba.ra64.mgba", "name": "mGBA", "acceptedFilenameRegex": "[.]gba$", "amStartArguments": "-n com.retroarch/.Main -e LIBRETRO mgba"}])
 	if not require(not manager.needs_emulator_database(), "partial Mac emulator cache skips startup download"): return
 	change_scene_to_file(ProjectSettings.get_setting("application/run/main_scene"))
-	for i in range(30): await process_frame
 	var screen = load("res://scripts/screens/screen.gd")
-	home = screen.get_screen("main")
+	# 0.10.1 loads the main screen behind an animated boot scene.
+	for i in range(200):
+		home = screen.get_screen("main")
+		if home != null and home.is_node_ready():
+			break
+		await create_timer(0.05).timeout
+	if not require(home != null and home.is_node_ready(), "boot reaches the main screen"): return
+	if OS.get_name() == "Linux":
+		if not require(root.get_meta("socket_shader_startup_complete", false), "headless startup completes without GPU warmup"): return
+		if not require(not paused and not root.get_meta("socket_shader_startup_active", false), "startup leaves navigation unpaused"): return
 	var viewport: SubViewport = home.viewport_3d
 	var lights: = viewport.find_children("*", "DirectionalLight3D", true, false)
 	if not require(lights.size() == 1 and lights[0].shadow_enabled and lights[0].directional_shadow_mode == DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS, "smaller shadow atlas preserves the cartridge light and four shadow splits"): return
@@ -157,6 +170,10 @@ func _run() -> void:
 	carousel.prev()
 	if not require(carousel.selected_index == selected and carousel.active_cartridges.size() == 3, "optimized carousel returns with three visible cartridges"): return
 	if not await check_focus(screen): return
+	if OS.get_name() == "Linux":
+		if not require(carousel._warmed_scenes.is_empty() and carousel._warmed_models.is_empty(), "Linux never schedules delayed carousel warmups"): return
+	if ProjectSettings.get_setting("application/config/version") == "0.10.1":
+		if not await load(get_script().resource_path.get_base_dir().path_join("test_dialogs.gd")).new().run(self): return
 	root.get_node("GUIDE")._input_state.disconnect_virtual_stick(joy_device)
 	await create_timer(0.5).timeout
 	await manager.update_emulator_database(true)
@@ -194,8 +211,10 @@ func check_focus(screen) -> bool:
 		var panel: Panel = overlay.get_node("Panel")
 		var border: StyleBoxFlat = panel.get_theme_stylebox("panel")
 		if not require(panel.is_visible_in_tree() and border.border_width_left > 0 and border.border_color.a > 0 and not border.draw_center, name + " outline has a visible border and a transparent center"): return false
-		overlay._input(InputEventMouseMotion.new())
-		await process_frame
+		var mouse_motion := InputEventMouseMotion.new()
+		mouse_motion.relative = Vector2(20, 0)
+		overlay._input(mouse_motion)
+		await create_timer(0.1).timeout
 		if not require(not overlay.visible, name + " mouse input hides the outline"): return false
 		overlay._input(controller)
 		await joy(JOY_BUTTON_DPAD_UP)
@@ -240,5 +259,8 @@ func joy(button: int) -> void:
 
 func check_audio(node: Node) -> void:
 	if node is AudioStreamPlayer:
-		if not require(node.bus == &"sfx", "UI audio routes through sfx: " + str(node.get_path())): return
+		# 0.10.1 adds music, which must not be muted by the UI-sounds setting.
+		if ProjectSettings.get_setting("application/config/version") == "0.10.1" and node == root.get_node("ThemeManager").get("_music"):
+			if not require(node.bus == &"Master", "background music stays independent of UI sounds"): return
+		elif not require(node.bus == &"sfx", "UI audio routes through sfx: " + str(node.get_path())): return
 	for child in node.get_children(): check_audio(child)

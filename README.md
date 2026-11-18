@@ -23,7 +23,7 @@ This project is not affiliated with or endorsed by the Socket developers.
 ## Requirements
 
 - An RG SP with BaseOS on the card in slot TF1.
-- A Socket APK, version 0.8.0 or 0.3.2. Version 0.3.2 is the last free
+- A Socket APK, version 0.10.1, 0.8.0 or 0.3.2. Version 0.3.2 is the last free
   version. See [Socket versions](docs/socket-versions.md).
 - A macOS or Linux computer with Docker (AArch64 Linux containers), a C
   compiler, OpenSSL libcrypto, Python 3, zstd, unzip and patch.
@@ -35,7 +35,7 @@ This project is not affiliated with or endorsed by the Socket developers.
 1. Point the build at your APK:
 
    ```sh
-   ./build.sh ~/Downloads/socket_release_0.8.0.apk
+   ./build.sh ~/Downloads/socket_release_0.10.1.apk
    ```
 
 2. Your card files will be in `dist/`.
@@ -93,7 +93,7 @@ records must still be on the card.
 3. Prepare the library, metadata and artwork with your own Socket APK:
 
    ```sh
-   python3 tools/setup-card-from-apk.py ~/Downloads/socket_release_0.8.0.apk /Volumes/BASEOS
+   python3 tools/setup-card-from-apk.py ~/Downloads/socket_release_0.10.1.apk /Volumes/BASEOS
    ```
 
    You can also explicitly set `SOCKET_API_KEY` to an authorized Socket GamesDB key
@@ -132,6 +132,23 @@ run the command again. Downloads need `curl` 8.4 or later.
 | MENU (in a game) | Open the game menu: save and load states, settings, and Save & Exit. |
 | Hold MENU for 1 second (in a game) | Save a state and go back to Socket. |
 | Hold L2 or R2 (in a game) | Rewind or fast-forward. |
+
+### File dialogs
+
+Music, artwork and native folder dialogs use native-resolution text and fit the
+screen independently of Socket's UI scale, including nested confirmations.
+They support the controller:
+
+- Up/Down moves through files; confirm opens a folder or file.
+- Left goes to **Cancel**; Right goes to **Open/Select** when a selection is valid.
+- Up/Down from those buttons returns to the file list.
+- L1/R1 moves between all controls, including filters and path fields.
+- Y goes to the parent folder; X marks/unmarks files in the music picker.
+- Cancel closes the topmost dialog and restores the previous focus.
+
+The ROM/save-folder picker also has **Save this folder** and **Cancel** as
+its first two entries; Left goes to the parent folder. Face-button actions
+follow Socket's configured controller layout.
 
 After three minutes of sleep, the device shuts down. After a shutdown in a
 game, Socket opens that game again at the next start. For the details, see

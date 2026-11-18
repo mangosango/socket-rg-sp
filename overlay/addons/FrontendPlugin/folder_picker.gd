@@ -9,7 +9,8 @@ var _previous_focus: Control
 
 
 func _ready() -> void:
-	title = "ROMs folder"
+	title = "Choose folder"
+	theme = ThemeDB.get_default_theme()
 	transient = true
 	exclusive = true
 	close_requested.connect(_cancel)
@@ -20,12 +21,13 @@ func _ready() -> void:
 	_path_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	layout.add_child(_path_label)
 	_folders = ItemList.new()
+	_folders.add_theme_font_size_override("font_size", 18)
 	_folders.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_folders.focus_mode = Control.FOCUS_NONE
 	layout.add_child(_folders)
 	_folders.item_activated.connect(_activate)
 	var help: = Label.new()
-	help.text = "Up/Down: choose   A: open/select   B: cancel   Left: parent"
+	help.text = "Up/Down: choose   Confirm: open/select   Cancel: close   Left: parent"
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	layout.add_child(help)
 
@@ -36,7 +38,8 @@ func open(start_path: String) -> void:
 	if not DirAccess.dir_exists_absolute(current_dir):
 		current_dir = "/"
 	_show_directory()
-	popup_centered(Vector2i(600, 400))
+	preload("res://addons/FrontendPlugin/controller_dialog.gd").fit_window(self)
+	popup()
 
 
 func _show_directory() -> void:
@@ -52,7 +55,7 @@ func _show_directory() -> void:
 
 
 func _input(event: InputEvent) -> void:
-	if event.is_action_pressed("ui_cancel"):
+	if event.is_action_pressed("ui_cancel") or (InputMap.has_action("ui_close_dialog") and event.is_action_pressed("ui_close_dialog")):
 		get_viewport().set_input_as_handled()
 		_cancel()
 	elif event.is_action_pressed("ui_left"):

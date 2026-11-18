@@ -10,6 +10,10 @@ Mali GPU. The panel is 720x480. The Socket layout is 1920x1280.
 - The directional shadow atlas is 1024 pixels, not 4096. This is 16 times
   fewer shadow-map pixels. Shadows are still enabled.
 - The cartridge carousel shows up to three games.
+- On Linux, supported Socket versions warm cartridge shaders before navigation
+  behind a `Compiling shaders` screen. This replaces delayed carousel warmups;
+  GLES compilation can otherwise block navigation for several seconds.
+  See the startup behavior and validation limits below.
 - The frosted glass blur uses five texture reads. The liquid glass blur uses
   four taps on 0.8.0.
 - The label shader skips the gloss gradient when its fade is zero. It
@@ -17,6 +21,28 @@ Mali GPU. The panel is 720x480. The Socket layout is 1920x1280.
 - Godot runs with `--render-thread safe`.
 
 For the 0.3.2 changes, see [Socket versions](socket-versions.md).
+
+## Startup shader compilation
+
+On graphical Linux boots, the `Compiling shaders` screen uses the active theme's
+surface and text colors, with native-pixel text; it does not change hardware
+brightness. It blocks navigation while built-in cartridge scenes, casing finishes
+and label styles are drawn using the
+main carousel's camera, lights and rendering target. This also runs with an empty
+library, without changing saved games or appearance settings.
+
+The warmup replays on each app start, reusing Godot's persistent shader cache.
+There is no permanent "first boot completed" flag: shader/engine/driver changes
+or a cleared cache must not silently skip preparation. A cold cache takes longer;
+compilation can freeze the status screen briefly between variants. Cached-boot
+duration and cache reuse still need measurement on the RG SP. Do not clear the
+existing cache for normal upgrades.
+
+Headless tests skip GPU preparation; non-Linux startup keeps upstream behavior.
+This targets cartridge shader compilation, not every possible menu effect,
+artwork-loading delay or other navigation stall. Real GPU coverage and cold/warm
+boot timing remain unverified until tested on the device. Headless test success
+is not evidence that all shader specializations were compiled.
 
 ## Image changes
 

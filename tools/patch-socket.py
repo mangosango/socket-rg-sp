@@ -8,7 +8,7 @@ calls and platform checks. This file does not contain Socket source; text that
 moves is captured from your copy. If an anchor does not match the expected
 number of times, the script stops and changes no files.
 
-Supported Socket versions: 0.8.0 and 0.3.2. The version comes from
+Supported Socket versions: 0.10.1, 0.8.0 and 0.3.2. The version comes from
 application/config/version in project.binary.
 """
 import re
@@ -30,13 +30,15 @@ def prepend(path, func, text):
 
 
 def only(version, edit):
-    """Apply an edit only to one Socket version."""
-    return edit + (version,)
+    """Apply an edit only to the listed Socket versions."""
+    return edit + ((version,) if isinstance(version, str) else version)
 
 
 LINUX = 'OS.get_name() == "Linux"'
-V080, V032 = "0.8.0", "0.3.2"
-VERSIONS = (V080, V032)
+V101, V080, V032 = "0.10.1", "0.8.0", "0.3.2"
+MODERN = (V101, V080)
+LEGACY = (V080, V032)
+VERSIONS = (V101, V080, V032)
 
 MANAGER = "scripts/autoload/manager.gd"
 EDIT_PLATFORM = "scenes/screen_edit_platform.gd"
@@ -114,14 +116,14 @@ func _process(_delta: float) -> void:
 # (file, pattern, replacement, expected matches, flags[, version])
 EDITS = [
     # Scrape results: reload the texture and game info after the paths change.
-    # Runs before the Linux scrape is added below, which sets both itself.
-    (MANAGER, r"^(\t+)(game\.support_texture_path = .*\n)", r"\1\2\1game.force_reload_texture()\n", 2, M),
-    (MANAGER, r"^(\t+)(game\.game_info_path = .*\n)", r"\1\2\1game._game_info_loaded = false\n", 2, M),
-    only(V080, prepend(MANAGER, "needs_emulator_database", """\
+    # Skip 0.10.1's reset, which already reloads. The Linux scrape sets both itself.
+    (MANAGER, r'^(\t+)(game\.support_texture_path = (?!""\s*$).*\n)', r"\1\2\1game.force_reload_texture()\n", 2, M),
+    (MANAGER, r'^(\t+)(game\.game_info_path = (?!""\s*$).*\n)', r"\1\2\1game._game_info_loaded = false\n", 2, M),
+    only(MODERN, prepend(MANAGER, "needs_emulator_database", """\
     if OS.get_name() == "Linux":
         return false
 """)),
-    only(V080, (MANAGER, r"^(\tconst TITLE\b.*\n)", lambda m: m[1] + gd("""\
+    only(MODERN, (MANAGER, r"^(\tconst TITLE\b.*\n)", lambda m: m[1] + gd("""\
     if OS.get_name() == "Linux":
         ScreenDialog.display(TITLE, "Use the Mac setup tool to update emulator lists on the SD card.", func(): pass, Callable())
         return
@@ -135,11 +137,11 @@ EDITS = [
             return
 """ + session + """\
         FrontendBridge.launch_emulator({"core": core, "rom": game.rom_path, "platform": game.platform_id})
-"""), 1, M)) for version, session in ((V080, '        _begin_play_session(game, "retroarch")\n'), (V032, ""))],
+"""), 1, M)) for version, session in ((MODERN, '        _begin_play_session(game, "retroarch")\n'), (V032, ""))],
     # Use the bridge on Linux for play time and folder listing.
     (MANAGER, r'OS\.get_name\(\) == "Android"(:\n\t+[^\n]*FrontendBridge\.get_files_in_dir\()',
      rf'OS.get_name() == "Android" or {LINUX}\1', 2, M),
-    only(V080, (MANAGER, r'OS\.get_name\(\) == "Android"(:\n\t+[^\n]*FrontendBridge\.get_foreground_seconds\()',
+    only(MODERN, (MANAGER, r'OS\.get_name\(\) == "Android"(:\n\t+[^\n]*FrontendBridge\.get_foreground_seconds\()',
      rf'OS.get_name() == "Android" or {LINUX}\1', 1, M)),
     prepend(MANAGER, "scan_platform_in_user", """\
     if OS.get_name() == "Linux" and not platform.rom_folder_path.is_empty() and DirAccess.open(platform.rom_folder_path) == null:
@@ -174,15 +176,17 @@ EDITS = [
     (MANAGER, r'^(func _get_app_by_id\(.*\n\tif OS\.get_name\(\) != "Android")', r'\1 and OS.get_name() != "Linux"', 1, M),
 
     # 0.3.2 reads the app list on every platform.
-    only(V080, ("scenes/screen_apps.gd", r'(get_installed_app_list\([^)]*\) if OS\.get_name\(\) == "Android")', rf"\1 or {LINUX}", 1, M)),
+    only(MODERN, ("scenes/screen_apps.gd", r'(get_installed_app_list\([^)]*\) if OS\.get_name\(\) == "Android")', rf"\1 or {LINUX}", 1, M)),
 
-    only(V080, (EDIT_PLATFORM, r"^(\tsuper\._ready\(\)\n)", lambda m: m[1] + gd("""
+    only(MODERN, (EDIT_PLATFORM, r"^(\tsuper\._ready\(\)\n)", lambda m: m[1] + gd("""
     var scan_button: Button = add_button.get_node("../Button_Scan")
     delete_button.focus_neighbor_right = delete_button.get_path_to(scan_button)
     add_button.focus_neighbor_left = add_button.get_path_to(scan_button)
 """), 1, M)),
-    (EDIT_PLATFORM, r'OS\.get_name\(\) == "Android"(:\n\t+FrontendBridge\.open_folder_picker\()\)',
-     rf'OS.get_name() == "Android" or {LINUX}\1rom_folder_path)', 1, M),
+    only(LEGACY, (EDIT_PLATFORM, r'OS\.get_name\(\) == "Android"(:\n\t+FrontendBridge\.open_folder_picker\()\)',
+     rf'OS.get_name() == "Android" or {LINUX}\1rom_folder_path)', 1, M)),
+    only(V101, (EDIT_PLATFORM, r'OS\.get_name\(\) == "Android"(:\n\t+FrontendBridge\.open_folder_picker\()\)',
+     rf'OS.get_name() == "Android" or {LINUX}\1save_folder_path if _picking_saves_folder else rom_folder_path)', 2, M)),
     # Stop when no folder is set, and scan with the values on the screen.
     # 0.3.2 has no subfolder option.
     *[only(version, (EDIT_PLATFORM, r"^(\tManager\.scan_platform_in_user\()", lambda m, subfolders=subfolders: gd("""\
@@ -193,22 +197,22 @@ EDITS = [
     platform.app_id = _get_selected_app_id()
 """ + subfolders + """\
     platform.hide_duplicates = hide_duplicates_toggle.is_on
-""") + m[1], 1, M)) for version, subfolders in ((V080, "    platform.scan_subfolders = scan_subfolders_toggle.is_on\n"), (V032, ""))],
+""") + m[1], 1, M)) for version, subfolders in ((MODERN, "    platform.scan_subfolders = scan_subfolders_toggle.is_on\n"), (V032, ""))],
 
     # UI sounds use the "sfx" bus. Make it before the first sound plays.
     ("scripts/screens/screen.gd", r'(_audio\.bus = )"fx"', r'\1"sfx"', 1, M),
-    only(V080, prepend("scripts/screens/screen.gd", "_collect_and_disable_focus", """\
+    only(MODERN, prepend("scripts/screens/screen.gd", "_collect_and_disable_focus", """\
     if node == self or (node is Screen and not node.visible):
         return
 """)),
-    only(V080, ("scripts/autoload/theme_manager.gd", r"^(func _ready\(\).*\n)", lambda m: gd("""\
+    only(MODERN, ("scripts/autoload/theme_manager.gd", r"^(func _ready\(\).*\n)", lambda m: gd("""\
 func _enter_tree() -> void:
     _apply_ui_sounds_enabled(bool(SettingsManager.get_setting("ui_sounds_enabled")))
 
 """) + m[1] + gd("""\
     _apply_ui_sounds_enabled(bool(SettingsManager.get_setting("ui_sounds_enabled")))
 """), 1, M)),
-    only(V080, ("scripts/autoload/theme_manager.gd", r"^(func _apply_ui_sounds_enabled\(.*\n\t.*\bbus_index\b.*\n)(?:\t.*\n)+", lambda m: m[1] + gd("""\
+    only(MODERN, ("scripts/autoload/theme_manager.gd", r"^(func _apply_ui_sounds_enabled\(.*\n\t.*\bbus_index\b.*\n)(?:\t.*\n)+", lambda m: m[1] + gd("""\
     if bus_index == -1:
         AudioServer.add_bus()
         bus_index = AudioServer.bus_count - 1
@@ -222,15 +226,26 @@ func _enter_tree() -> void:
 """),
 
     # Report a missing image only when the game has an image path.
-    ("scripts/cartridge.gd", r"^\telse:\n(?=\t\tpush_error\()",
-     "\telif not game.support_texture_path.is_empty() or not game.custom_support_image_path.is_empty():\n", 1, M),
+    only(LEGACY, ("scripts/cartridge.gd", r"^\telse:\n(?=\t\tpush_error\()",
+     "\telif not game.support_texture_path.is_empty() or not game.custom_support_image_path.is_empty():\n", 1, M)),
     prepend("scenes/cartridge_carousel.gd", "_ready", """\
     visible_games = mini(visible_games, 3)
 """),
 
+    # Warm the actual renderer before navigation, including empty libraries.
+    prepend("scenes/main.gd", "_ready", """\
+    if OS.get_name() == "Linux":
+        await preload("res://addons/FrontendPlugin/shader_startup.gd").run(self)
+"""),
+    # Startup replaces the delayed/off-frustum upstream warmups on Linux.
+    *[only(MODERN, prepend("scenes/cartridge_carousel.gd", func, """\
+    if OS.get_name() == "Linux":
+        return
+""")) for func in ("_warm_up_shaders", "warm_up_platforms")],
+
     # 3D view: optional frame-rate log, no MSAA, a 2/3 resolution limit,
     # one tonemap pass and the display edge filter. 0.3.2 has a simpler view.
-    *[only(V080, edit) for edit in [
+    *[only(MODERN, edit) for edit in [
     (RENDER_SCALE, r"(?<=\n)(?=\nfunc _ready\(\))", gd(FPS_VARS), 1, M),
     (RENDER_SCALE, r"^(\t_display\.texture = .*\n)", lambda m: m[1] + gd("""\
     var display_material := ShaderMaterial.new()
@@ -326,7 +341,7 @@ func _baseos_fit_ui() -> void:
     ]],
 
     # Shaders: fewer blur taps, and less work per fragment.
-    only(V080, ("scenes/liquid_glass.gdshader", r"(const int BLUR_TAPS = )\d+;", r"\g<1>4;", 1, M)),
+    only(MODERN, ("scenes/liquid_glass.gdshader", r"(const int BLUR_TAPS = )\d+;", r"\g<1>4;", 1, M)),
     ("materials/frosted_glass.gdshader", r"(?:^//[^\n]*\n)*^vec3 gaussian_blur\((.*?)\)\{\n.*?^\}", lambda m: gd("""\
 // Five taps retain the bright center and soft refraction at handheld resolution.
 vec3 gaussian_blur(""") + m[1] + gd("""){
@@ -338,16 +353,17 @@ vec3 gaussian_blur(""") + m[1] + gd("""){
     color += textureLod(tex, pos + vec2( radius.x,  radius.y), 3.0).rgb * 0.18;
     return color;
 }"""), 1, S),
-    (STICKER, r"^(\theight = h;\n)", lambda m: m[1] + gd("""\
+    *[only(versions, (path, r"^(\theight = h;\n)", lambda m: m[1] + gd("""\
     // A zero fade removes the gradient from the result.
     if (fade == 0.0) {
         return normalize(n);
     }
-"""), 1, M),
-    (STICKER, r"^(\tvec3 grating_axis = [^\n]*\n)(.*?)"
+"""), 1, M)) for versions, path in ((LEGACY, STICKER), (V101, "scenes/paper_sticker_body.gdshaderinc"))],
+    # 0.10.1 shares the groove axis with gloss; keep its new shader layout.
+    only(LEGACY, (STICKER, r"^(\tvec3 grating_axis = [^\n]*\n)(.*?)"
               r"^((?:\t//[^\n]*\n)*\tfloat tilt_gain = [^\n]*\n\tvec3 view_tilted = [^\n]*\n\tvec3 light_tilted = [^\n]*\n)"
-              r"(.*?^\tif \(enable_diffraction\) \{\n)", move_diffraction_setup, 1, S),
-    (STICKER, r"\(noise_tex\.rgb \* 2\.0\)", "noise_tex.rgb", 1, M),
+              r"(.*?^\tif \(enable_diffraction\) \{\n)", move_diffraction_setup, 1, S)),
+    only(LEGACY, (STICKER, r"\(noise_tex\.rgb \* 2\.0\)", "noise_tex.rgb", 1, M)),
 ]
 
 

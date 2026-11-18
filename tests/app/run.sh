@@ -24,7 +24,7 @@ cat "$WORK/output"
 test "$status" -eq 0
 grep -q '^PASS:' "$WORK/output"
 
-if grep -Eq "SCRIPT ERROR:|Assertion failed|Unicode parsing error" "$WORK/output"; then
+if grep -Eq "ERROR:|Assertion failed|Unicode parsing error" "$WORK/output"; then
 	exit 1
 fi
 if test "$#" -gt 0; then

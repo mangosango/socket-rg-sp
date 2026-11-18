@@ -35,12 +35,16 @@ use_source() {
 	cp "$2" "$RES/$1"
 }
 mkdir -p "$WORK/src"
-SCRIPTS="scripts/autoload/manager.gd scenes/screen_apps.gd scenes/screen_edit_platform.gd scripts/autoload/theme_manager.gd scripts/screens/screen.gd scenes/focus_overlay.gd scripts/cartridge.gd scenes/render_scale_3d.gd scenes/cartridge_carousel.gd scenes/keyboard_avoider.gd"
+SCRIPTS="scenes/main.gd scripts/autoload/manager.gd scenes/screen_apps.gd scenes/screen_edit_platform.gd scripts/autoload/theme_manager.gd scripts/screens/screen.gd scenes/focus_overlay.gd scripts/cartridge.gd scenes/render_scale_3d.gd scenes/cartridge_carousel.gd scenes/keyboard_avoider.gd"
 for script in $SCRIPTS; do
 	mkdir -p "$WORK/src/$(dirname "$script")"
 	python3 -I "$HERE/gdc2gd.py" "$RES/${script%.gd}.gdc" "$WORK/src/$script"
 done
 SHADERS="scenes/liquid_glass.gdshader materials/frosted_glass.gdshader scenes/paper_sticker.gdshader"
+# Socket 0.10.1 moved the shared sticker shader into an include.
+if [ -f "$RES/scenes/paper_sticker_body.gdshaderinc" ]; then
+	SHADERS="$SHADERS scenes/paper_sticker_body.gdshaderinc"
+fi
 for shader in $SHADERS; do
 	mkdir -p "$WORK/src/$(dirname "$shader")"
 	cp "$RES/$shader" "$WORK/src/$shader"
@@ -56,7 +60,9 @@ for script in $SCRIPTS; do
 done
 use_source addons/FrontendPlugin/frontend_bridge.gd "$OVERLAY/addons/FrontendPlugin/frontend_bridge.gd"
 use_source addons/FrontendPlugin/folder_picker.gd "$OVERLAY/addons/FrontendPlugin/folder_picker.gd"
+use_source addons/FrontendPlugin/controller_dialog.gd "$OVERLAY/addons/FrontendPlugin/controller_dialog.gd"
 use_source addons/FrontendPlugin/controls_hud.gd "$OVERLAY/addons/FrontendPlugin/controls_hud.gd"
+use_source addons/FrontendPlugin/shader_startup.gd "$OVERLAY/addons/FrontendPlugin/shader_startup.gd"
 cp -R "$OVERLAY/addons/FrontendPlugin/controls" "$RES/addons/FrontendPlugin/controls"
 mkdir -p "$RES/shaders"
 cp "$OVERLAY/shaders/display_aa.gdshader" "$RES/shaders/display_aa.gdshader"
