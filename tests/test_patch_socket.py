@@ -134,15 +134,16 @@ class PatchSocketTests(unittest.TestCase):
         modern = ("extends SubViewport\n\nfunc _ready() -> void:\n\t_display.texture = get_texture()\n\tmsaa_3d = Viewport.MSAA_2X\n\t_apply()\n\n"
                   "func _apply() -> void:\n\tvar pixels: = native if requested.x > native.x else requested\n")
         legacy = "extends SubViewport\n\nfunc _ready() -> void:\n\tpass\n\nfunc _apply(scale: float) -> void:\n\tpass\n"
+        handler = "\nfunc _on_setting_changed(key: String, new_value: Variant) -> void:\n\tpass\n"
         for version in patch_socket.VERSIONS:
             with self.subTest(version=version):
-                view = self.patched(patch_socket.RENDER_SCALE, version, legacy if version == "0.3.2" else modern)
+                view = self.patched(patch_socket.RENDER_SCALE, version, (legacy if version == "0.3.2" else modern) + handler)
                 self.assertIn("var _baseos_cap: = 1.0\n", view)
                 self.assertIn("native * minf(", view)
                 self.assertNotIn("2.0 / 3.0)", view)
                 # Each candidate needs its variable. The shader define keeps its escape.
                 for text in ('if cap.is_valid_float():\n\t\t_baseos_cap = clampf(cap.to_float(), 0.05, 1.0)',
-                             'msaa_3d = {"2": Viewport.MSAA_2X, "4": Viewport.MSAA_4X}.get(OS.get_environment("SOCKET_3D_MSAA"), Viewport.MSAA_DISABLED)',
+                             '_baseos_apply_msaa(bool(SettingsManager.get_setting("cartridge_msaa")))',
                              # One shadow pass is the default. "0" removes the shadow map and "4" keeps four splits.
                              'var shadow_map: = shadows != "0"',
                              'if not shadow_map:\n\t\t\tlight.shadow_enabled = false',

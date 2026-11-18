@@ -52,6 +52,8 @@ const RADIOS := {
 # Request name, minimum, maximum and step of each level row.
 const LEVELS := {"Brightness": ["brightness", 1, 10, 1], "Volume": ["volume", 0, 100, 5]}
 const TITLE := "Device Settings"
+const MSAA := "Cartridge MSAA"
+const MSAA_KEY := "cartridge_msaa"
 # The titles of the pages that RetroArch opens from the Cheats row.
 const CHEATS_TITLES := ["Cheats", "Cheat files", "libretro cheat titles"]
 
@@ -96,6 +98,7 @@ var _sequence: int = -2
 var _ack: = RegEx.create_from_string("^([0-9]{1,19}) (ok|error) ([0-9]{1,3})\\n\\z")
 var _held: int = 0
 var _repeat_at: int = 0
+var _settings: Node
 
 
 func _ready() -> void:
@@ -221,7 +224,10 @@ func _build() -> void:
 	_list = VBoxContainer.new()
 	_list.add_theme_constant_override("separation", roundi(12 * _unit))
 	_body.add_child(_list)
-	for row_name in ["Brightness", "Volume", "Wi-Fi", "Bluetooth"] + (["Game", "Cheats"] if game else []):
+	_settings = get_node_or_null("/root/SettingsManager")
+	if _settings != null and not _settings.has_method("cartridge_msaa_mode"):
+		_settings = null
+	for row_name in ["Brightness", "Volume", "Wi-Fi", "Bluetooth"] + ([MSAA] if _settings != null else []) + (["Game", "Cheats"] if game else []):
 		_list.add_child(_row(row_name))
 	layout.add_child(_hint())
 
@@ -280,6 +286,12 @@ func _row(row_name: String) -> Button:
 		bar.add_theme_stylebox_override("fill", _box(_ink, 7 * _unit))
 		side.add_child(bar)
 		value.custom_minimum_size.x = 150 * _unit
+	elif row_name == MSAA:
+		row.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
+		row.pressed.connect(func(): _settings.call("set_setting", MSAA_KEY, not _settings.call("get_setting", MSAA_KEY)))
+		if _settings.call("cartridge_msaa_mode") == Viewport.MSAA_DISABLED:
+			row.disabled = true
+			row.focus_mode = Control.FOCUS_NONE
 	elif not RADIOS.has(row_name):
 		row.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
 		row.pressed.connect(_game_row.bind(row))
@@ -353,6 +365,14 @@ func _process(_delta: float) -> void:
 		var level: int = _shown[row_name]
 		_rows[row_name].get_node("Side/Bar").value = level
 		_rows[row_name].get_node("Side/Value").text = "Muted" if row_name == "Volume" and level == 0 else str(level)
+	if _rows.has(MSAA):
+		# The watchdog can pause MSAA while the panel is open.
+		var state := "On"
+		if _rows[MSAA].disabled or not _settings.call("get_setting", MSAA_KEY):
+			state = "Off"
+		elif _root.get_meta("socket_cartridge_msaa_paused", false):
+			state = "Paused"
+		_rows[MSAA].get_node("Side/Value").text = state
 
 
 # Glyph pixels for each layout unit. scale is the display pixels for each

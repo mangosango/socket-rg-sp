@@ -146,7 +146,8 @@ func _run() -> void:
 
 	root.get_node("FrontendBridge").open_device_settings()
 	panel = root.get_node("DeviceSettings")
-	if not require(panel._rows.keys() == ["Brightness", "Volume", "Wi-Fi", "Bluetooth"], "launcher menu has four device settings"): return
+	if not require(panel._rows.keys() == ["Brightness", "Volume", "Wi-Fi", "Bluetooth", "Cartridge MSAA"], "launcher menu has five device settings"): return
+	if not require(panel._card.size.y <= panel._logical.y, "the launcher menu is on the display"): return
 	var image := await shot("root")
 	var gui: SubViewport = panel._gui
 	var scale: float = 480.0 / panel._logical.y
@@ -159,6 +160,24 @@ func _run() -> void:
 		gui.size, font.get_font_name(), size, size * scale, glyph, Rect2(panel._card.global_position * scale, panel._card.size * scale), values[0], values[1]])
 	if not require(gui.size == Vector2i(720, 480), "the panel draws one sample for each display pixel"): return
 	if not require(size == panel._socket_theme().default_font_size, "the text has the size of the Socket theme"): return
+
+	# Cartridge MSAA: A sets it off and on. The cartridge viewport follows.
+	var settings := root.get_node("SettingsManager")
+	var mode: int = settings.cartridge_msaa_mode()
+	var views := root.find_children("*", "SubViewport", true, false).filter(func(node): return node.get_script() != null and node.get_script().resource_path == "res://scenes/render_scale_3d.gd")
+	if not require(views.size() == 1, "the launcher has one cartridge viewport"): return
+	var shown: Label = panel._rows["Cartridge MSAA"].get_node("Side/Value")
+	if mode == Viewport.MSAA_DISABLED:
+		if not require(panel._rows["Cartridge MSAA"].disabled and shown.text == "Off" and views[0].msaa_3d == Viewport.MSAA_DISABLED, "no permitted MSAA: the row is Off and has no function"): return
+	else:
+		if not require(settings.get_setting("cartridge_msaa") == true and shown.text == "On" and views[0].msaa_3d == mode, "the row shows On and the cartridge viewport has MSAA"): return
+		if not await choose("Cartridge MSAA"): return
+		if not require(settings.get_setting("cartridge_msaa") == false and shown.text == "Off" and views[0].msaa_3d == Viewport.MSAA_DISABLED, "A sets MSAA off in the cartridge viewport"): return
+		await shot("msaa-off")
+		await press(JOY_BUTTON_A)
+		await wait(0.6)
+		if not require(settings.get_setting("cartridge_msaa") == true and shown.text == "On" and views[0].msaa_3d == mode, "A sets MSAA on again in the cartridge viewport"): return
+	print("Device Settings cartridge MSAA: mode %d, row %s" % [mode, shown.text])
 
 	# Wi-Fi: scan, choose the long name, type a password on the keyboard, join.
 	if not await choose("Wi-Fi"): return

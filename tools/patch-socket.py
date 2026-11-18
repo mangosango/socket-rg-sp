@@ -70,6 +70,8 @@ var _fps_nav_until_usec: int = 0
 var _fps_seen_shaders: Array = []
 var _fps_cache_files: int = -1
 var _baseos_cap: = 1.0
+var _baseos_aa_generation: = 0
+var _baseos_last_unpause_usec: = 0
 """
 # The pixel font files ask for glyphs at 8 or 10 times the layout size. The
 # panel shows the layout at 0.375 of its size, so each glyph shrinks about 26
@@ -101,10 +103,7 @@ BENCH_START = """\
     var cap: = OS.get_environment("SOCKET_3D_CAP")
     if cap.is_valid_float():
         _baseos_cap = clampf(cap.to_float(), 0.05, 1.0)
-    msaa_3d = {"2": Viewport.MSAA_2X, "4": Viewport.MSAA_4X}.get(OS.get_environment("SOCKET_3D_MSAA"), Viewport.MSAA_DISABLED)
-    if OS.get_environment("SOCKET_3D_MSAA") == "auto" and OS.get_environment("SOCKET_TILE_MSAA") == "1":
-        msaa_3d = Viewport.MSAA_2X
-        _baseos_watch_aa.call_deferred()
+    _baseos_apply_msaa(bool(SettingsManager.get_setting("cartridge_msaa")))
     # "4" keeps the four shadow splits of Socket. "0" removes the shadow map:
     # no shadow pass, no shadow reads in the cartridge shaders and no separate
     # tonemap pass. It changes the image, see TONEMAP.
@@ -272,9 +271,22 @@ FPS_START = """\
             push_error("Socket: cannot open render-performance.jsonl: " + str(FileAccess.get_open_error()))
 """
 FPS_PROCESS = """\
+func _notification(what: int) -> void:
+    if what == NOTIFICATION_UNPAUSED:
+        _baseos_last_unpause_usec = Time.get_ticks_usec()
+
+
+func _baseos_apply_msaa(enabled: bool) -> void:
+    _baseos_aa_generation += 1
+    var paused: bool = get_tree().root.get_meta("socket_cartridge_msaa_paused", false)
+    msaa_3d = SettingsManager.cartridge_msaa_mode() if enabled and not paused else Viewport.MSAA_DISABLED
+    if msaa_3d != Viewport.MSAA_DISABLED and OS.get_environment("SOCKET_3D_MSAA") == "auto":
+        _baseos_watch_aa(_baseos_aa_generation)
+
+
 # Release the extra samples after two intervals below 12 fps on the live carousel.
 # Normal navigation on the RG SP runs at about 28 to 37 fps.
-func _baseos_watch_aa() -> void:
+func _baseos_watch_aa(generation: int) -> void:
     var slow: = 0
     while msaa_3d != Viewport.MSAA_DISABLED:
         var tree: = get_tree()
@@ -282,10 +294,13 @@ func _baseos_watch_aa() -> void:
         var drawn: = Engine.get_frames_drawn()
         var active: = _baseos_aa_carousel()
         await tree.create_timer(3.0, false, false, true).timeout
+        if generation != _baseos_aa_generation:
+            return
         var usec: = Time.get_ticks_usec() - start
-        if active and _baseos_aa_carousel() and (Engine.get_frames_drawn() - drawn) * 1000000.0 < 12.0 * usec:
+        if active and start >= _baseos_last_unpause_usec and _baseos_aa_carousel() and (Engine.get_frames_drawn() - drawn) * 1000000.0 < 12.0 * usec:
             slow += 1
             if slow == 2:
+                get_tree().root.set_meta("socket_cartridge_msaa_paused", true)
                 msaa_3d = Viewport.MSAA_DISABLED
                 print("Socket: disabled MSAA for this session after sustained rendering below 12 fps.")
         else:
@@ -293,7 +308,7 @@ func _baseos_watch_aa() -> void:
 
 
 func _baseos_aa_carousel() -> bool:
-    return render_target_update_mode == SubViewport.UPDATE_ALWAYS and (Engine.max_fps == 0 or Engine.max_fps > 12) and get_tree().root.get_meta("socket_shader_startup_complete", false) and Screen.screens_open.size() == 1 and Screen.screens_open[0].name == &"Screen_MainMenu"
+    return not get_tree().paused and render_target_update_mode == SubViewport.UPDATE_ALWAYS and (Engine.max_fps == 0 or Engine.max_fps > 12) and get_tree().root.get_meta("socket_shader_startup_complete", false) and Screen.screens_open.size() == 1 and Screen.screens_open[0].name == &"Screen_MainMenu"
 
 
 func _fps_write(record: Dictionary) -> void:
@@ -396,7 +411,24 @@ func _process(_delta: float) -> void:
 
 # (file, pattern, replacement, expected matches, flags[, version])
 EDITS = [
-    ("scripts/autoload/settings_manager.gd", r'^(\s*"render_scale_3d": )0\.85(,)$', r"\g<1>0.75\2", 1, M),
+    ("scripts/autoload/settings_manager.gd", r'^(\s*"render_scale_3d": )0\.85(,)$', r'\g<1>0.75\2\n\t"cartridge_msaa": true,', 1, M),
+    ("scripts/autoload/settings_manager.gd", r"\n+\Z", gd("""
+
+func cartridge_msaa_mode() -> Viewport.MSAA:
+    match OS.get_environment("SOCKET_3D_MSAA"):
+        "auto":
+            return Viewport.MSAA_2X if OS.get_environment("SOCKET_TILE_MSAA") == "1" else Viewport.MSAA_DISABLED
+        "2":
+            return Viewport.MSAA_2X
+        "4":
+            return Viewport.MSAA_4X
+    return Viewport.MSAA_DISABLED
+"""), 1, 0),
+    prepend(RENDER_SCALE, "_on_setting_changed", """\
+    if key == "cartridge_msaa":
+        get_tree().root.set_meta("socket_cartridge_msaa_paused", false)
+        _baseos_apply_msaa(bool(new_value))
+"""),
     only(MODERN, ("scripts/game.gd", r"^(\t)WorkerThreadPool\.add_task\((func\(\): _on_support_image_prefetched)", r"\1FrontendBridge.prefetch_artwork(\2", 1, M)),
     # Scrape results: reload the texture and game info after the paths change.
     # Skip the reset in 0.10.1. It already reloads the game.

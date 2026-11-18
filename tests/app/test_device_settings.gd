@@ -21,6 +21,19 @@ class Guide extends Node:
 	func _unhandled_input(event: InputEvent) -> void:
 		inject_input(event)
 
+# Like Socket's SettingsManager, with the cartridge MSAA setting only.
+class Settings extends Node:
+	var values := {"cartridge_msaa": true}
+	var saves := 0
+	var mode := Viewport.MSAA_2X
+	func cartridge_msaa_mode() -> Viewport.MSAA:
+		return mode
+	func get_setting(key: String) -> Variant:
+		return values.get(key)
+	func set_setting(key: String, value: Variant) -> void:
+		values[key] = value
+		saves += 1
+
 var run_dir: String = OS.get_environment("SOCKET_RUN")
 var sequence := 0
 var volume := 40
@@ -324,7 +337,78 @@ func _run() -> void:
 	assert(not root.has_node("DeviceSettings"))
 	await menu()
 	assert(root.has_node("DeviceSettings"))
+	# No SettingsManager with the setting: the panel has no Cartridge MSAA row.
+	assert(not root.get_node("DeviceSettings")._rows.has("Cartridge MSAA"))
 	root.get_node("DeviceSettings").close()
+	await wait(0.1)
+	assert(not paused and root.gui_get_focus_owner() == launcher)
+
+	# Cartridge MSAA: the row shows the value of the manager. A changes and saves it.
+	var settings := Settings.new()
+	settings.name = "SettingsManager"
+	root.add_child(settings)
+	await menu()
+	panel = root.get_node("DeviceSettings")
+	assert(panel._rows.keys() == ["Brightness", "Volume", "Wi-Fi", "Bluetooth", "Cartridge MSAA"])
+	for index in 3:
+		await tap("ui_down")
+	focus = panel._gui.gui_get_focus_owner()
+	assert(focus.name == "Cartridge MSAA" and focus.get_node("Side/Value").text == "On" and settings.saves == 0)
+	await button(JOY_BUTTON_A, true)
+	await button(JOY_BUTTON_A, false)
+	assert(settings.values["cartridge_msaa"] == false and settings.saves == 1 and focus.get_node("Side/Value").text == "Off")
+	assert(panel._gui.gui_get_focus_owner() == focus and panel._sub == null and panel._title.text == "Device Settings")
+	# The next panel shows the saved value. A sets it on again.
+	await menu()
+	await menu()
+	panel = root.get_node("DeviceSettings")
+	var state: Label = panel._rows["Cartridge MSAA"].get_node("Side/Value")
+	assert(state.text == "Off")
+	for index in 3:
+		await tap("ui_down")
+	await tap("ui_accept")
+	assert(settings.values["cartridge_msaa"] == true and settings.saves == 2 and state.text == "On")
+	# The watchdog pauses MSAA: the row shows Paused while the setting is true.
+	# Off and then On change the setting. The renderer removes the mark.
+	root.set_meta("socket_cartridge_msaa_paused", true)
+	await wait(0.1)
+	assert(state.text == "Paused" and settings.saves == 2)
+	await tap("ui_accept")
+	assert(settings.values["cartridge_msaa"] == false and state.text == "Off")
+	root.remove_meta("socket_cartridge_msaa_paused")
+	await tap("ui_accept")
+	assert(settings.values["cartridge_msaa"] == true and settings.saves == 4 and state.text == "On")
+	await menu()
+	# The driver does not permit MSAA: the row shows Off and gets no focus.
+	settings.mode = Viewport.MSAA_DISABLED
+	root.set_meta("socket_cartridge_msaa_paused", true)
+	await menu()
+	panel = root.get_node("DeviceSettings")
+	assert(panel._rows["Cartridge MSAA"].disabled and panel._rows["Cartridge MSAA"].get_node("Side/Value").text == "Off")
+	for index in 4:
+		await tap("ui_down")
+	assert(panel._gui.gui_get_focus_owner().name == "Wi-Fi")
+	await tap("ui_accept")
+	await button(JOY_BUTTON_B, true)
+	await button(JOY_BUTTON_B, false)
+	assert(panel._sub == null and settings.saves == 4)
+	root.remove_meta("socket_cartridge_msaa_paused")
+	settings.mode = Viewport.MSAA_4X
+	await menu()
+	assert(not root.has_node("DeviceSettings") and not paused and root.gui_get_focus_owner() == launcher and presses[0] == 1)
+	# During a game, the row is before the game rows and all rows are on the display.
+	var game_panel = load("res://addons/FrontendPlugin/device_settings.gd").new()
+	game_panel.game = true
+	root.add_child(game_panel)
+	await wait(0.2)
+	assert(game_panel._rows.keys() == ["Brightness", "Volume", "Wi-Fi", "Bluetooth", "Cartridge MSAA", "Game", "Cheats"])
+	assert(game_panel._gui.gui_get_focus_owner().name == "Game")
+	var card: Rect2 = game_panel._card.get_global_rect()
+	print("Device Settings game card: %s of %s" % [card, game_panel._logical])
+	assert(Rect2(Vector2.ZERO, game_panel._logical).encloses(card))
+	for row in game_panel._rows.values():
+		assert(card.encloses(row.get_global_rect()))
+	game_panel.free()
 	await wait(0.1)
 	assert(not paused and root.gui_get_focus_owner() == launcher)
 	print("PASS: Device Settings")

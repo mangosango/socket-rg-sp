@@ -27,7 +27,7 @@ PAGE
 cp "$HERE/test_device_settings.gd" "$WORK/"
 printf 'config_version=5\n' > "$WORK/project.godot"
 status=0
-SOCKET_RUN="$WORK/run" "${GODOT:-godot}" --headless --log-file "$WORK/godot.log" --path "$WORK" --script test_device_settings.gd --quit-after 3000 > "$WORK/output" 2>&1 || status=$?
+SOCKET_RUN="$WORK/run" "${GODOT:-godot}" --headless --log-file "$WORK/godot.log" --path "$WORK" --script test_device_settings.gd --quit-after 6000 > "$WORK/output" 2>&1 || status=$?
 cat "$WORK/output"
 test "$status" -eq 0
 grep -q '^PASS: Device Settings' "$WORK/output"

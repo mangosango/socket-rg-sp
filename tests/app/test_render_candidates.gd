@@ -54,6 +54,12 @@ func _run() -> void:
 	if OS.get_environment("SOCKET_3D_MSAA") == "auto" and OS.get_environment("SOCKET_TILE_MSAA") == "1":
 		msaa = Viewport.MSAA_2X
 	if not require(view.msaa_3d == msaa, "MSAA follows SOCKET_3D_MSAA"): return
+	if not require(settings.get_setting("cartridge_msaa") == true, "older profiles allow cartridge MSAA by default"): return
+	settings.set_setting("cartridge_msaa", false)
+	var saved := ConfigFile.new()
+	if not require(saved.load("user://settings.cfg") == OK and saved.get_value("General", "cartridge_msaa") == false and view.msaa_3d == Viewport.MSAA_DISABLED, "Off disables edge MSAA live and survives a restart"): return
+	settings.set_setting("cartridge_msaa", true)
+	if not require(view.msaa_3d == msaa, "On restores the driver sample count"): return
 	var lights := view.find_children("*", "Light3D", true, false)
 	var shadows := OS.get_environment("SOCKET_3D_SHADOWS") != "0"
 	# One shadow pass is the default. "4" selects the four splits of Socket.
@@ -113,11 +119,24 @@ func _run() -> void:
 		Engine.max_fps = 30
 		if not require(view._baseos_aa_carousel(), "measure only the visible live carousel"): return
 		view.msaa_3d = Viewport.MSAA_2X
-		view._baseos_watch_aa()
+		view._baseos_watch_aa(view._baseos_aa_generation)
+		paused = true
+		if not require(not view._baseos_aa_carousel(), "time in Device Settings is outside the frame budget"): return
+		await create_timer(1.0).timeout
+		paused = false
+		# Finish the interrupted interval slowly. It must not count against MSAA.
+		var interrupted := Time.get_ticks_msec()
+		while Time.get_ticks_msec() - interrupted < 3150:
+			OS.delay_msec(115)
+			await process_frame
 		var started := Time.get_ticks_msec()
 		while Time.get_ticks_msec() - started < 8000 and view.msaa_3d != Viewport.MSAA_DISABLED:
 			OS.delay_msec(115)
 			await process_frame
-		if not require(Time.get_ticks_msec() - started >= 5900 and view.msaa_3d == Viewport.MSAA_DISABLED and view.size == Vector2i(720, 480), "two slow intervals release MSAA and keep the native image"): return
+		if not require(Time.get_ticks_msec() - started >= 5450 and view.msaa_3d == Viewport.MSAA_DISABLED and view.size == Vector2i(720, 480), "two slow intervals release MSAA and keep the native image"): return
+		if not require(root.get_meta("socket_cartridge_msaa_paused", false) and settings.get_setting("cartridge_msaa") == true, "the watchdog pauses MSAA for this session only"): return
+		settings.set_setting("cartridge_msaa", false)
+		settings.set_setting("cartridge_msaa", true)
+		if not require(not root.get_meta("socket_cartridge_msaa_paused") and view.msaa_3d == msaa, "turning MSAA back on retries after the watchdog stops it"): return
 	print("PASS: render candidate cap=", cap, " viewport=", view.size, " linear=", linear, " msaa=", msaa, " shadows=", shadows, " one_shadow_pass=", one_pass, " ui_snap=", snap)
 	quit()

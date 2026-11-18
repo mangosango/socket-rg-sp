@@ -1,5 +1,6 @@
 # Draw the in-game Device Settings with the packed project, the fbdev display
-# server and the window released, as during a game. Use tests/app/run_render.py.
+# server and the window released, as during a game. Use tests/app/run_render.py
+# with SOCKET_3D_MSAA=2 to exercise the switch on Mesa.
 # The script saves each frame above a game picture in SOCKET_EVIDENCE.
 extends SceneTree
 
@@ -72,6 +73,18 @@ func _run() -> void:
 	if OS.get_environment("SOCKET_TEST_DARK") == "1":
 		root.get_node("SettingsManager").set_setting("dark_mode", true)
 		await wait(0.5)
+	var manager = root.get_node("Manager")
+	var platform = load("res://scripts/platform.gd").new()
+	platform.model = manager.db.get_platform("gba").new()
+	var rom := OS.get_environment("SOCKET_TEST_ROOT").path_join("One.gba")
+	platform.games.append(load("res://scripts/game.gd").from_dict({"rom_name": "One", "rom_path": rom, "platform_id": "gba"}))
+	manager.add_platform_to_user(manager.current_user, platform)
+	var home = load("res://scripts/screens/screen.gd").get_screen("main")
+	home.selected_platform_index = home._get_visible_platforms().find(platform)
+	home.render_carousel()
+	var view: SubViewport = home.viewport_3d
+	await wait(1.0)
+	if not require(view.get_texture().get_image().get_used_rect().has_area(), "fixture cartridges are visible before launch"): return
 	var bridge := root.get_node("FrontendBridge")
 	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_MINIMIZED)
 	if not require(OS.get_environment("SOCKET_GAME_OVERLAY_EGL") == "1", "the engine has a GL context without the display"): return
@@ -97,6 +110,7 @@ func _run() -> void:
 	# The focus outline and the filled part of a level bar must be clear on the
 	# surface, in the light mode and in the dark mode.
 	var panel := root.get_node("DeviceSettings")
+	if not require(Rect2(Vector2.ZERO, panel._logical).encloses(panel._card.get_global_rect()), "all seven game menu rows fit on the panel"): return
 	var data := FileAccess.get_file_as_bytes(run_dir.path_join("menu.frame"))
 	var shot := Image.create_from_data(720, 480, false, Image.FORMAT_RGBA8, data.slice(28))
 	var scale: float = 480.0 / panel._logical.y
@@ -131,9 +145,16 @@ func _run() -> void:
 	save("view-short.png")
 	await send("root 1\n")
 	if not require(panel._gui.gui_get_focus_owner().name == "Cheats" and panel._card.size == card, "root returns to the row"): return
-	await press("up")
-	await press("up")
+	await press("up") # Game
+	await press("up") # Cartridge MSAA when available, otherwise Bluetooth
+	var msaa_row: Button = panel._rows["Cartridge MSAA"]
+	if not msaa_row.disabled:
+		if not require(msaa_row.has_focus(), "the cartridge MSAA row has focus"): return
+		await press("a")
+		if not require(root.get_node("SettingsManager").get_setting("cartridge_msaa") == false, "the game menu saved MSAA Off"): return
+		await press("up")
 	await press("a")
+	if not require(panel._sub != null and panel._title.text == "Bluetooth", "Bluetooth opens from the shared menu"): return
 	await wait(1.0)
 	save("bluetooth.png")
 	await press("b")
@@ -162,6 +183,8 @@ func _run() -> void:
 	if not require(result == [0] and not paused, "the game exit restores the launcher"): return
 	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN)
 	for i in range(3): await RenderingServer.frame_post_draw
+	if not require(view.msaa_3d == Viewport.MSAA_DISABLED, "the resumed carousel uses the selected MSAA state"): return
+	if not require(view.get_texture().get_image().get_used_rect().has_area(), "the resumed cartridge viewport draws cartridges"): return
 	root.get_texture().get_image().save_png(evidence.path_join("launcher-after.png"))
 	print("PASS: game menu frames with the packed project")
 	quit()
