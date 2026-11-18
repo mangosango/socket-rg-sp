@@ -15,6 +15,7 @@ var _cores_dir: String = OS.get_environment("SOCKET_CORES") if OS.has_environmen
 var _libretro_regex: = RegEx.create_from_string("-e LIBRETRO\\s+(\\S+)")
 var _poweroff_poll: float = 0.0
 var _playing: bool = false
+var _artwork_tasks: Array[int] = []
 var _clock_error_shown: bool = false
 var _settings_poll: float = 0.0
 var _settings_armed: bool = false
@@ -25,12 +26,29 @@ var _settings_format := RegEx.create_from_string("^([0-9]{1,18}) ([0-9]{1,9})\\n
 
 func _enter_tree() -> void:
 	get_tree().node_added.connect(_on_dialog_added)
-	# Keep cartridge shadows without a 4096-pixel atlas on the handheld GPU.
-	RenderingServer.directional_shadow_atlas_set_size(1024, true)
+	# One 512-pixel shadow map retains the cartridge relief at panel resolution.
+	RenderingServer.directional_shadow_atlas_set_size(512, true)
 	AudioServer.set_bus_volume_db(0, -20.0)
 	# A boot resume goes into the game at once. Keep the launcher silent until then.
 	if OS.get_environment("SOCKET_RESUME_BOOT") == "1":
 		AudioServer.set_bus_mute(0, true)
+
+
+# The pool retains the game and its textures until the main thread joins the task.
+func prefetch_artwork(job: Callable) -> void:
+	_artwork_tasks.append(WorkerThreadPool.add_task(job))
+
+
+func _release_artwork_tasks(exiting: bool) -> void:
+	for index in range(_artwork_tasks.size() - 1, -1, -1):
+		var task := _artwork_tasks[index]
+		if exiting or WorkerThreadPool.is_task_completed(task):
+			WorkerThreadPool.wait_for_task_completion(task)
+			_artwork_tasks.remove_at(index)
+
+
+func _exit_tree() -> void:
+	_release_artwork_tasks(true)
 
 
 func _on_dialog_added(node: Node) -> void:
@@ -136,6 +154,8 @@ func _process(delta: float) -> void:
 	if _poweroff_poll < 0.2 or _playing:
 		return
 	_poweroff_poll = 0.0
+	if not _artwork_tasks.is_empty():
+		_release_artwork_tasks(false)
 	if not _clock_error_shown and FileAccess.file_exists(_run_dir.path_join("wifi.clock-error")):
 		_clock_error_shown = true
 		var label := Label.new()

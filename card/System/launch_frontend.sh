@@ -13,6 +13,12 @@ export SOCKET_RESUME_MANIFEST="$SD/Saves/socket/resume-game"
 export SOCKET_SETTINGS="$SD/Saves/socket/controls.cfg"
 # Record frame rates for the RG SP performance check.
 export SOCKET_FPS_DIAGNOSTICS=1
+# The 3D render-scale setting selects a fraction of the physical panel size.
+export SOCKET_3D_CAP="${SOCKET_3D_CAP:-1}"
+export SOCKET_3D_FILTER="${SOCKET_3D_FILTER:-linear}"
+export SOCKET_3D_SHADOWS="${SOCKET_3D_SHADOWS:-orthogonal}"
+# Use 2x when the driver supports tile MSAA.
+export SOCKET_3D_MSAA="${SOCKET_3D_MSAA:-auto}"
 # Socket's user:// data goes to Saves/socket/godot/app_userdata/Socket.
 export XDG_DATA_HOME="$SD/Saves/socket"
 if ! mkdir -m 700 "$SOCKET_RUN" 2>/dev/null; then
@@ -127,6 +133,8 @@ run_app() {
 # then returns to the resident frontend without a cold pack load.
 if [ -f "$SOCKET_RESUME_MANIFEST" ]; then
 	export SOCKET_RESUME_BOOT=1
+elif [ -f "$SD/Benchmark/run" ] && [ -f "$SD/Benchmark/bench_device.sh" ]; then
+	sh "$SD/Benchmark/bench_device.sh"
 fi
 [ -f "$LOGS/socket.log" ] && mv -f "$LOGS/socket.log" "$LOGS/socket.log.1"
 run_app /lib/ld-linux-aarch64.so.1 "$SYS/godot" --main-pack "$SYS/socket.pck" \

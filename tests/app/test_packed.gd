@@ -30,6 +30,11 @@ func _run() -> void:
 	bridge.launch_app_with_params("unused", {}, "second")
 	bridge.kill_package_processes("unused")
 	var settings = root.get_node("SettingsManager")
+	if not require(is_equal_approx(float(settings.get_setting("render_scale_3d")), 0.75), "a missing saved scale uses the 0.75 default"): return
+	settings.set_setting("render_scale_3d", 0.85)
+	settings._load_settings()
+	if not require(is_equal_approx(float(settings.get_setting("render_scale_3d")), 0.85), "an existing 0.85 preference survives reload"): return
+	settings.set_setting("render_scale_3d", 0.75)
 	if not require(settings.get_setting("ui_sounds_enabled") == false, "saved mute setting loaded at startup"): return
 	var bus: int = AudioServer.get_bus_index("sfx")
 	if not require(bus > 0 and AudioServer.is_bus_mute(bus), "startup sfx bus is muted"): return
@@ -50,7 +55,7 @@ func _run() -> void:
 		if not require(not paused and not root.get_meta("socket_shader_startup_active", false), "startup leaves navigation unpaused"): return
 	var viewport: SubViewport = home.viewport_3d
 	var lights: = viewport.find_children("*", "DirectionalLight3D", true, false)
-	if not require(lights.size() == 1 and lights[0].shadow_enabled and lights[0].directional_shadow_mode == DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS, "smaller shadow atlas preserves the cartridge light and four shadow splits"): return
+	if not require(lights.size() == 1 and lights[0].shadow_enabled and lights[0].directional_shadow_mode == DirectionalLight3D.SHADOW_ORTHOGONAL, "cartridges share one directional shadow map"): return
 	if FileAccess.file_exists("/sys/devices/system/cpu/online"):
 		var online: String = root.get_node("FrontendBridge")._read_sys("/sys/devices/system/cpu/online")
 		if not require(RegEx.create_from_string("^[0-9,-]+$").search(online) != null, "packed sysfs read excludes the unread page tail"): return
@@ -78,12 +83,12 @@ func _run() -> void:
 		var requested: Vector2 = container.size * 0.5
 		settings.set_setting("render_scale_3d", 0.5)
 		viewport._apply()
-		var expected: Vector2 = requested.min(native * (2.0 / 3.0))
+		var expected: Vector2 = requested.min(native * 0.5)
 		if not require(viewport.size == Vector2i(roundi(expected.x), roundi(expected.y)).maxi(2), "3D size preserves lower setting and caps native pixels: " + str(window_size)): return
 		if window_size == Vector2i(720, 480):
 			if not require(root.content_scale_mode == Window.CONTENT_SCALE_MODE_CANVAS_ITEMS, "720x480 UI draws at native resolution"): return
 			if not require(root.get_visible_rect().size == Vector2(1920, 1280), "720x480 keeps the expanded 3:2 logical layout"): return
-			if not require(viewport.size == Vector2i(480, 320), "720x480 limits 3D to 480x320 with saved 50% render scale"): return
+			if not require(viewport.size == Vector2i(360, 240), "50% render scale uses half the panel width and height"): return
 			var camera: Camera3D = viewport.get_camera_3d()
 			if not require(camera.fov == 20.0 and camera.keep_aspect == Camera3D.KEEP_HEIGHT, "720x480 preserves the cartridge camera framing"): return
 	root.size = Vector2i(720, 480)

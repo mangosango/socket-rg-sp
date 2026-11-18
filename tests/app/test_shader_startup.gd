@@ -65,23 +65,57 @@ func _run() -> void:
 			root.add_child(status)
 			var label: Label = status.find_children("*", "Label", true, false)[0]
 			var theme_manager = root.get_node("ThemeManager")
+			var plate: PanelContainer = status.find_children("*", "PanelContainer", true, false)[0]
 			if theme_manager.has_method("_on_node_added"):
 				theme_manager.call("_on_node_added", label)
+				theme_manager.call("_on_node_added", plate)
 				theme_manager.call("_on_node_added", status._backdrop)
 			await process_frame
 			await process_frame
 			check(status._backdrop.color.is_equal_approx(expected_surface), "palette surface survives deferred theme processing")
 			check(label.get_theme_color("font_color").is_equal_approx(expected_ink), "palette ink survives deferred theme processing")
-			check(label.get_theme_font_size("font_size") == 24, "legible native font size")
+			check(label.get_theme_font_size("font_size") == 22, "native font size on the pixel-font grid")
+			check(plate.get_theme_stylebox("panel").bg_color.is_equal_approx(expected_surface), "status plate keeps the palette surface")
+			check(status._spinner.get_parent() == label.get_parent() and status._spinner.custom_minimum_size == Vector2(28, 28), "spinner sits beside the label")
+			check((status._spinner.get_script() != null) == ResourceLoader.exists("res://scenes/ui/spinner.gd"), "pack spinner is used where present")
+			var angle: float = status._angle
+			status._process(0.1)
+			check(status._angle != angle, "spinner turns while navigation is paused")
 			check((root.get_stretch_transform() * status.transform).is_equal_approx(Transform2D.IDENTITY), "status cancels root UI scaling while paused")
 			check(status._backdrop.size == Vector2(root.size), "native backdrop covers window")
-			check(label.size == status._backdrop.size, "label centered across native backdrop: %s vs %s" % [label.size, status._backdrop.size])
+			check((plate.get_global_rect().get_center() - status._backdrop.size / 2.0).length() <= 1.0, "status plate centered on the native backdrop: %s" % plate.get_global_rect())
+			check(plate.get_global_rect().encloses(label.get_global_rect()), "label is on the plate")
 			status.free()
 	root.content_scale_factor = old_scale
 	root.size = old_size
 	if palette_script:
 		palette_script.set_active(original_palette)
 	paused = false
+
+	# The dots keep their on-screen spacing when the source node is not panel height.
+	var source := ColorRect.new()
+	source.material = ShaderMaterial.new()
+	source.material.shader = load("res://scenes/scrolling_dots.gdshader")
+	source.material.set_shader_parameter("density", 20.0)
+	source.material.set_shader_parameter("scroll_direction", Vector2.ZERO)
+	source.material.set_shader_parameter("dot_color", Color.RED)
+	root.add_child(source)
+	root.size = Vector2i(720, 480)
+	await process_frame
+	source.size = root.get_visible_rect().size * Vector2(1.0, 0.5)
+	var dotted = helper.new()
+	root.add_child(dotted)
+	var dot_rects: Array = dotted._backdrop.get_children().filter(func(node): return node is ColorRect)
+	check(dot_rects.size() == 1 and dot_rects[0].material != source.material and dot_rects[0].material.shader == source.material.shader, "status reuses the pack dots shader on its own material")
+	if dot_rects.size() == 1:
+		check(is_equal_approx(dot_rects[0].material.get_shader_parameter("density"), 40.0), "dot spacing matches a half-height source: %s" % dot_rects[0].material.get_shader_parameter("density"))
+		check(dot_rects[0].material.get_shader_parameter("dot_color") == Color.RED, "dots keep the launch colors")
+		check(dot_rects[0].material.get_shader_parameter("scroll_direction") == Vector2(0.1, 0.1), "still dots get the launch scroll")
+		check(dot_rects[0].get_index() == 0, "dots draw behind the status plate")
+	check(is_equal_approx(source.material.get_shader_parameter("density"), 20.0), "the source material does not change")
+	dotted.free()
+	source.free()
+	root.size = old_size
 
 	# Exercise teardown independently, including early cancellation before warmup.
 	for was_paused in [false, true]:
@@ -127,6 +161,7 @@ func _run() -> void:
 	paused = false
 
 	root.set_use_font_oversampling(old_oversampling)
+	check(root.get_meta("socket_shader_startup_stats", {}).has_all(["sets", "draws", "presents", "warmup_ms", "longest_frame_ms", "first_input_ms"]), "teardown records benchmark times")
 
 	# No library games are used: validate every built-in/regional model API and
 	# every finish/label setter the GPU pass will call, without claiming draws.

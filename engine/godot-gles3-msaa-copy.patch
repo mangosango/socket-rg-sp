@@ -1,0 +1,57 @@
+--- a/drivers/gles3/rasterizer_scene_gles3.cpp
++++ b/drivers/gles3/rasterizer_scene_gles3.cpp
+@@ -2695,6 +2695,8 @@
+ 	} else {
+ 		rb->set_apply_environment_effects_in_post(apply_environment_effects_in_post);
+ 		rb->set_apply_canvas_bg_exposure(apply_canvas_bg_exposure);
++		// These frames copy the screen or the depth before the transparent pass.
++		rb->set_msaa_explicit_resolve(scene_state.used_screen_texture || scene_state.used_depth_texture || ssao_enabled);
+ 		fbo = rb->get_render_fbo();
+ 	}
+ 
+--- a/drivers/gles3/storage/render_scene_buffers_gles3.cpp
++++ b/drivers/gles3/storage/render_scene_buffers_gles3.cpp
+@@ -290,7 +290,7 @@
+ 			msaa3d.samples = config->msaa_max_samples;
+ 		}
+ 
+-		if (!use_multiview && !config->rt_msaa_supported) {
++		if (!use_multiview && (!config->rt_msaa_supported || msaa3d.explicit_resolve)) {
+ 			// Render to texture extensions not supported? fall back to MSAA framebuffer through GL_EXT_framebuffer_multisample.
+ 			// Note, if 2D MSAA matches 3D MSAA and we're not scaling, it would be ideal if we reuse our 2D MSAA buffer here.
+ 			// We can't however because we don't trigger a change in configuration if 2D MSAA changes.
+@@ -417,6 +417,16 @@
+ 	}
+ }
+ 
++// Tile MSAA loses its depth when a frame copies the screen or the depth.
++// Set true for such a frame. The frame then uses MSAA render buffers.
++void RenderSceneBuffersGLES3::set_msaa_explicit_resolve(bool p_explicit) {
++	p_explicit = p_explicit && GLES3::Config::get_singleton()->rt_msaa_supported && view_count == 1 && msaa3d.mode != RSE::VIEWPORT_MSAA_DISABLED;
++	if (msaa3d.explicit_resolve != p_explicit) {
++		msaa3d.explicit_resolve = p_explicit;
++		_clear_msaa3d_buffers();
++	}
++}
++
+ void RenderSceneBuffersGLES3::configure_for_probe(Size2i p_size) {
+ 	internal_size = p_size;
+ 	target_size = p_size;
+--- a/drivers/gles3/storage/render_scene_buffers_gles3.h
++++ b/drivers/gles3/storage/render_scene_buffers_gles3.h
+@@ -69,6 +69,7 @@
+ 	struct RTMSAA3D {
+ 		RSE::ViewportMSAA mode = RSE::VIEWPORT_MSAA_DISABLED;
+ 		bool needs_resolve = false;
++		bool explicit_resolve = false;
+ 		GLsizei samples = 1;
+ 		GLuint color = 0;
+ 		GLuint depth = 0;
+@@ -128,6 +129,7 @@
+ 		_check_render_buffers();
+ 		return msaa3d.depth;
+ 	}
++	void set_msaa_explicit_resolve(bool p_explicit);
+ 	bool get_msaa_needs_resolve() {
+ 		_check_render_buffers();
+ 		return msaa3d.needs_resolve;

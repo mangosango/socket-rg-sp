@@ -1,0 +1,72 @@
+--- a/drivers/gles3/storage/config.h
++++ b/drivers/gles3/storage/config.h
+@@ -109,6 +109,10 @@
+ 	// ANGLE shader workaround.
+ 	bool polyfill_half2float = true;
+ 
++#ifdef FBDEV_ENABLED
++	void (*fbdev_msaa_texture)(GLenum, GLenum, GLenum, GLuint, GLint, GLsizei) = nullptr;
++#endif
++
+ #ifdef ANDROID_ENABLED
+ 	PFNGLFRAMEBUFFERTEXTUREMULTIVIEWOVRPROC eglFramebufferTextureMultiviewOVR = nullptr;
+ 	PFNGLTEXSTORAGE3DMULTISAMPLEPROC eglTexStorage3DMultisample = nullptr;
+--- a/drivers/gles3/storage/config.cpp
++++ b/drivers/gles3/storage/config.cpp
+@@ -37,7 +37,7 @@
+ #include "core/string/ustring.h"
+ #include "drivers/gles3/rasterizer_util_gles3.h"
+ 
+-#ifdef ANDROID_ENABLED
++#if defined(ANDROID_ENABLED) || defined(FBDEV_ENABLED)
+ #include <platform_egl.h>
+ #endif
+ 
+@@ -153,6 +153,15 @@
+ 	multiview_supported = extensions.has("OCULUS_multiview") || extensions.has("GL_OVR_multiview2") || extensions.has("GL_OVR_multiview");
+ #endif
+ 
++#ifdef FBDEV_ENABLED
++	// Godot attaches both color and depth textures. Only revision 2 permits both.
++	if (extensions.has("GL_EXT_multisampled_render_to_texture2") && msaa_max_samples >= 2) {
++		fbdev_msaa_texture = reinterpret_cast<decltype(fbdev_msaa_texture)>(eglGetProcAddress("glFramebufferTexture2DMultisampleEXT"));
++		rt_msaa_supported = fbdev_msaa_texture != nullptr;
++	}
++	OS::get_singleton()->set_environment("SOCKET_TILE_MSAA", rt_msaa_supported ? "1" : "0");
++#endif
++
+ #ifdef ANDROID_ENABLED
+ 	// These are GLES only
+ 	rt_msaa_supported = extensions.has("GL_EXT_multisampled_render_to_texture");
+--- a/drivers/gles3/storage/render_scene_buffers_gles3.cpp
++++ b/drivers/gles3/storage/render_scene_buffers_gles3.cpp
+@@ -71,7 +71,10 @@
+ 		}
+ 	} else {
+ 		if (p_samples > 1) {
+-#ifdef ANDROID_ENABLED
++#if defined(ANDROID_ENABLED) || defined(FBDEV_ENABLED)
++#ifdef FBDEV_ENABLED
++			auto glFramebufferTexture2DMultisampleEXT = GLES3::Config::get_singleton()->fbdev_msaa_texture;
++#endif
+ 			glFramebufferTexture2DMultisampleEXT(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, p_color, 0, p_samples);
+ 			glFramebufferTexture2DMultisampleEXT(GL_FRAMEBUFFER, p_depth_has_stencil ? GL_DEPTH_STENCIL_ATTACHMENT : GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, p_depth, 0, p_samples);
+ #else
+@@ -87,7 +90,7 @@
+ GLuint RenderSceneBuffersGLES3::_rt_get_cached_fbo(GLuint p_color, GLuint p_depth, GLsizei p_samples, uint32_t p_view_count) {
+ 	FBDEF new_fbo;
+ 
+-#if defined(ANDROID_ENABLED) || defined(WEB_ENABLED)
++#if defined(ANDROID_ENABLED) || defined(WEB_ENABLED) || defined(FBDEV_ENABLED)
+ 	// There shouldn't be more then 3 entries in this...
+ 	for (const FBDEF &cached_fbo : msaa3d.cached_fbos) {
+ 		if (cached_fbo.color == p_color && cached_fbo.depth == p_depth) {
+@@ -364,7 +367,7 @@
+ 			glBindTexture(GL_TEXTURE_2D_MULTISAMPLE_ARRAY, 0);
+ 			glBindFramebuffer(GL_FRAMEBUFFER, GLES3::TextureStorage::system_fbo);
+ #endif
+-#if defined(ANDROID_ENABLED) || defined(WEB_ENABLED) // Only supported on OpenGLES!
++#if defined(ANDROID_ENABLED) || defined(WEB_ENABLED) || defined(FBDEV_ENABLED) // Only supported on OpenGLES!
+ 		} else if (!use_internal_buffer) {
+ 			// We are going to render directly into our render target textures,
+ 			// these can change from frame to frame as we cycle through swapchains,

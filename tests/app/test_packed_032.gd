@@ -51,11 +51,11 @@ func _run() -> void:
 	probe.queue_free()
 	if not require(clicked[0].is_equal_approx(Vector2(960, 640)), "panel input maps to the logical layout: " + str(clicked[0])): return
 	var view: SubViewport = root.find_children("*", "SubViewport", true, false).filter(func(node): return node.get_script() != null and node.get_script().resource_path == "res://scenes/render_scale_3d.gd")[0]
-	if not require(view.size == Vector2i(480, 320) and is_equal_approx(view.scaling_3d_scale, 1.0), "3D renders at 480x320, 2/3 of the panel"): return
-	if not require(view.get_parent().material is ShaderMaterial and view.get_parent().material.shader.resource_path == "res://shaders/display_aa.gdshader", "3D view uses the display edge filter"): return
+	if not require(view.size == Vector2i(540, 360) and is_equal_approx(view.scaling_3d_scale, 1.0), "3D renders at the default 0.75 scale"): return
+	if not require(view.get("_display").material is ShaderMaterial and view.get("_display").material.shader.resource_path == "res://shaders/display_aa.gdshader", "3D view uses the display edge filter"): return
 	root.size = Vector2i(1440, 960)
 	for i in range(3): await process_frame
-	if not require(view.size == Vector2i(960, 640) and ui.size == Vector2i(1440, 960), "UI and 3D sizes follow a window change"): return
+	if not require(view.size == Vector2i(1080, 720) and ui.size == Vector2i(1440, 960), "UI and 3D sizes follow a window change"): return
 	# A window larger than the layout keeps the stretched layout-size viewport.
 	root.size = Vector2i(3840, 2560)
 	for i in range(5): await process_frame

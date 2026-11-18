@@ -45,8 +45,15 @@ func _run() -> void:
 	var manager = root.get_node("Manager")
 	load("res://scripts/models/emulator_database.gd").store("gba", [{"uniqueId": "gba.ra64.mgba", "name": "mGBA", "acceptedFilenameRegex": "[.]gba$", "amStartArguments": "-n com.retroarch/.Main -e LIBRETRO mgba"}])
 	change_scene_to_file(ProjectSettings.get_setting("application/run/main_scene"))
-	for i in range(30): await process_frame
-	var home = load("res://scripts/screens/screen.gd").get_screen("main")
+	var screen = load("res://scripts/screens/screen.gd")
+	var home
+	var has_warmup := ResourceLoader.exists("res://addons/FrontendPlugin/shader_startup.gd") and OS.get_name() == "Linux"
+	for i in range(5000):
+		home = screen.get_screen("main")
+		if home != null and home.is_node_ready() and (not has_warmup or root.get_meta("socket_shader_startup_complete", false)):
+			break
+		await process_frame
+	if not require(home != null and home.is_node_ready() and (not has_warmup or root.get_meta("socket_shader_startup_complete", false)), "boot completes before fixture setup"): return
 	# White paper with saturated blocks. Bright label art is common.
 	var art := Image.create(256, 256, false, Image.FORMAT_RGBA8)
 	for y in range(256):
@@ -69,6 +76,10 @@ func _run() -> void:
 		info.store_string(JSON.stringify({"matched": true, "method": "md5", "game_id": 1, "name": game_name, "platform": "nintendo-game-boy-advance", "region": "World", "texture_url": "", "labels": [], "meta": {}}))
 		info.close()
 	await manager.scan_platform_in_user(manager.current_user, platform)
+	if home.has_method("_get_visible_platforms"):
+		home.selected_platform_index = home._get_visible_platforms().find(platform)
+		if not require(home.selected_platform_index >= 0, "fixture platform is visible"): return
+		home.render_carousel()
 	var carousel = home.carousel_3d
 	# The carousel adds hidden shader warm-up meshes with label materials and frees each
 	# after 2 frames. A cached warm-up mesh is a freed object later (release builds crash).

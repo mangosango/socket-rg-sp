@@ -18,6 +18,19 @@ shader cache. Headless runs skip GPU preparation. This new startup path has not
 yet been verified on RG SP hardware; previous hardware results in the table do
 not validate it. See [Rendering](rendering.md#startup-shader-compilation).
 
+The startup screen now shows the moving launch dots and a turning indicator.
+All three versions also get the small-text changes and the render candidate
+variables in [Rendering](rendering.md#small-text). Checks with the Godot 4.7.1
+template on Mesa GLES at 720x480 passed for all three versions: the dots and
+the indicator move between warmup frames, the label does not move and is
+legible in light and dark palettes (dark on 0.10.1), no blank frame follows,
+and the 600x400 linear single-shadow candidate and the earlier 480x320 profile give
+the expected 3D size, filter, shadow mode and log fields. The 0.10.1 pack was
+built from the APK. The 0.8.0 and 0.3.2 packs were repacks of local pack
+snapshots with the new patch output, because their APKs were not available.
+Mesa does not show Mali speed, compile stalls or the panel image. Those need
+the RG SP.
+
 Startup compatibility checks use a fresh 0.10.1 APK build and shader-only
 repacks of existing 0.8.0/0.3.2 packs (their APKs were unavailable). Headless
 checks cover gate cleanup, the exact status label, main-scene startup and
@@ -66,8 +79,8 @@ makes these changes:
 - It draws the UI at the panel resolution (720x480 on the RG SP) with the
   same layout. On a screen larger than the layout, the UI uses the layout
   size.
-- It draws the 3D view at 2/3 of the panel pixels (480x320 on the RG SP)
-  with the display edge filter.
+- The 3D render-scale slider starts at 0.75 (540x360 on the RG SP). The
+  render candidate variables also apply to the 0.3.2 viewport container.
 - It writes the same frame-rate log as 0.8.0. See [Rendering](rendering.md).
 
 These 0.8.0 changes don't apply to 0.3.2 because it doesn't have the related

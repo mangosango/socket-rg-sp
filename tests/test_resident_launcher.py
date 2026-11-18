@@ -103,14 +103,18 @@ class ResidentLauncherTests(unittest.TestCase):
                 script(system / "test-game", 'trap \'touch "$SOCKET_RUN/game-stopped"; exit 0\' TERM\nwhile :; do sleep .05; done\n')
                 crash_child = ('sleep .1\nsh "$SOCKET_SYSTEM/test-game" &\n'
                                'child=$!\nprintf "%s\\n" "$child" > "$SOCKET_RUN/app.pid"\nsleep .1\n') if orphan else ''
-                script(system / "godot", 'printf "%s\\n" "$@" > "$SOCKET_RUN/args"\n' + crash_child +
+                script(system / "godot", 'echo "$SOCKET_3D_CAP $SOCKET_3D_MSAA $SOCKET_3D_FILTER" > "$SOCKET_RUN/render"\n'
+                       'printf "%s\\n" "$@" > "$SOCKET_RUN/args"\n' + crash_child +
                        ('printf "idle\\n" > "$SOCKET_RUN/poweroff.request"\n' if request else '') + f"exit {status}\n")
                 launcher = root / "launch_frontend.sh"
                 launcher.write_text((ROOT / "card/System/launch_frontend.sh").read_text()
                                     .replace("/tmp/socket", str(run))
                                     .replace("/lib/ld-linux-aarch64.so.1", "/bin/sh"))
-                result = subprocess.run(["sh", str(launcher)], cwd=root,
-                                        env=dict(os.environ, PATH=str(bins) + ":" + os.environ["PATH"]),
+                env = dict(os.environ, PATH=str(bins) + ":" + os.environ["PATH"])
+                env.pop("SOCKET_3D_CAP", None)
+                env.pop("SOCKET_3D_MSAA", None)
+                env.pop("SOCKET_3D_FILTER", None)
+                result = subprocess.run(["sh", str(launcher)], cwd=root, env=env,
                                         capture_output=True, text=True, timeout=5)
                 self.assertEqual(result.returncode, status, result.stderr)
                 self.assertEqual((run / "powered-off").exists(), request and status == 0)
@@ -118,6 +122,7 @@ class ResidentLauncherTests(unittest.TestCase):
                 self.assertFalse((run / "hardware.ready").exists())
                 self.assertTrue((run / "wifi.stop").exists())
                 self.assertIn("--render-thread\nsafe\n", (run / "args").read_text())
+                self.assertEqual((run / "render").read_text().strip(), "1 auto linear")
                 if orphan:
                     deadline = time.monotonic() + 2
                     while not (run / "game-stopped").exists() and time.monotonic() < deadline:

@@ -104,7 +104,7 @@ func save_user(): saved += 1
         name = "addons/FrontendPlugin/" + script
         assert source(name) == (Path(__file__).resolve().parents[2] / "overlay" / name).read_text()
     bridge = source("addons/FrontendPlugin/frontend_bridge.gd")
-    assert "RenderingServer.directional_shadow_atlas_set_size(1024, true)" in method(bridge, "_enter_tree")
+    assert "RenderingServer.directional_shadow_atlas_set_size(512, true)" in method(bridge, "_enter_tree")
     assert "get_file_as_string" not in method(bridge, "_read_sys")
     assert "get_line()" in method(bridge, "_read_sys")
 

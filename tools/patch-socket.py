@@ -8,6 +8,8 @@ calls and platform checks. This file does not contain Socket source; text that
 moves is captured from your copy. If an anchor does not match the expected
 number of times, the script stops and changes no files.
 
+The script also adds the shader global of the casing filter to project.binary.
+
 Supported Socket versions: 0.10.1, 0.8.0 and 0.3.2. The version comes from
 application/config/version in project.binary.
 """
@@ -61,6 +63,193 @@ var _fps_worst_usec: int = 0
 var _fps_frames: int = 0
 var _fps_drawn_frames: int = 0
 var _fps_log: FileAccess
+var _fps_process_frame: int = 0
+var _fps_frame_usec: PackedInt32Array = []
+var _fps_nav_usec: PackedInt32Array = []
+var _fps_nav_until_usec: int = 0
+var _fps_seen_shaders: Array = []
+var _fps_cache_files: int = -1
+var _baseos_cap: = 1.0
+"""
+# The pixel font files ask for glyphs at 8 or 10 times the layout size. The
+# panel shows the layout at 0.375 of its size, so each glyph shrinks about 26
+# times in one linear read with no mipmaps, and its strokes break up. Without
+# that request, native-pixel text (HUD, dialogs, startup status) gets glyphs at
+# its exact size. The scaled UI gets glyphs at two times the panel size, which
+# one linear read makes smooth. The UI vertices go on whole panel pixels.
+FONT_FILES = ["res://fonts/DepartureMono-1.500/DepartureMono-Regular." + kind for kind in ("otf", "woff")]
+FONT_FIX = """\
+        var window: = get_tree().root
+        window.snap_2d_vertices_to_pixel = OS.get_environment("SOCKET_UI_SNAP") != "0"
+        if OS.get_environment("SOCKET_UI_FONT") != "0":
+            for path in %s:
+                if ResourceLoader.exists(path):
+                    load(path).oversampling = 0.0
+            var fit: = func():
+                var ui_scale: = window.get_stretch_transform().get_scale().y
+                window.oversampling_override = 2.0 * ui_scale if ui_scale < 1.0 else 0.0
+            window.size_changed.connect(fit)
+            fit.call()
+""" % FONT_FILES
+
+# Device benchmark candidates. With no variable set, rendering does not change.
+BENCH_NAMES = ["SOCKET_3D_CAP", "SOCKET_3D_FILTER", "SOCKET_3D_MSAA", "SOCKET_3D_SHADOWS", "SOCKET_UI_SNAP", "SOCKET_UI_FONT", "SOCKET_UI_LIGHT"]
+BENCH_START = """\
+    # Benchmark candidates: the 3D pixel limit as a part of the panel pixels,
+    # 2x or 4x MSAA, and the shadow map. The defaults are the full slider range, no MSAA and
+    # one shadow pass.
+    var cap: = OS.get_environment("SOCKET_3D_CAP")
+    if cap.is_valid_float():
+        _baseos_cap = clampf(cap.to_float(), 0.05, 1.0)
+    msaa_3d = {"2": Viewport.MSAA_2X, "4": Viewport.MSAA_4X}.get(OS.get_environment("SOCKET_3D_MSAA"), Viewport.MSAA_DISABLED)
+    if OS.get_environment("SOCKET_3D_MSAA") == "auto" and OS.get_environment("SOCKET_TILE_MSAA") == "1":
+        msaa_3d = Viewport.MSAA_2X
+        _baseos_watch_aa.call_deferred()
+    # "4" keeps the four shadow splits of Socket. "0" removes the shadow map:
+    # no shadow pass, no shadow reads in the cartridge shaders and no separate
+    # tonemap pass. It changes the image, see TONEMAP.
+    var shadows: = OS.get_environment("SOCKET_3D_SHADOWS")
+    var shadow_map: = shadows != "0"
+    for light in find_children("*", "DirectionalLight3D", true, false):
+        if not shadow_map:
+            light.shadow_enabled = false
+            # A light with no shadow map gives less light in this renderer.
+            # Two times the energy gives the mean brightness of the image with the shadow map.
+            light.light_energy *= 2.0
+        elif shadows != "4":
+            # One shadow pass draws the casters one time, not one time for each of four splits.
+            light.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+"""
+# Compatibility tonemaps the light with a shadow map alone, so lit labels
+# clip. Neutral adjustments make Godot tonemap one time in a separate pass. A
+# mild Reinhard curve then keeps highlight detail. The 2D UI does not change.
+# With no shadow map the cartridge shader tonemaps one time itself, so the
+# separate pass is off. That image is flatter: Mesa captures show a mean color
+# difference of 12 to 20 of 255 on the cartridge pixels.
+TONEMAP = """\
+    for node in find_children("*", "WorldEnvironment", true, false):
+        var world: = node as WorldEnvironment
+        if world.environment == null:
+            continue
+        world.environment = world.environment.duplicate()
+        world.environment.tonemap_mode = Environment.TONE_MAPPER_REINHARDT
+        world.environment.tonemap_white = 1.3
+        world.environment.adjustment_enabled = shadow_map
+        world.environment.adjustment_brightness = 1.0
+        world.environment.adjustment_contrast = 1.0
+        world.environment.adjustment_saturation = 1.05
+"""
+DISPLAY_MATERIAL = """\
+    var display_material := ShaderMaterial.new()
+    display_material.shader = load("res://shaders/display_aa.gdshader")
+    if OS.get_environment("SOCKET_3D_FILTER") == "linear":
+        # Benchmark candidate: one linear read that keeps premultiplied alpha.
+        var linear := Shader.new()
+        linear.code = "#define DISPLAY_LINEAR\\n" + display_material.shader.code
+        display_material.shader = linear
+"""
+# Fewer full-screen operations in the 2D frame. SOCKET_UI_LIGHT=0 turns this off.
+#
+# Corners: Socket draws the rounded screen corners with a shader on a rect of
+# the full screen, but only a band at the screen edges can get color. Draw the
+# band only, with the same shader and the same UV values.
+#
+# Glass: each glass panel reads the screen below it. For that read, the GPU
+# stops the frame, copies it and continues, and a tile GPU must then load the
+# full frame again. On the main menu the dotted background with its gradient is
+# below the glass, and the blur removes the dots. So these panels get the
+# background color, the mean dot cover and the gradient as inputs and do not
+# read the screen. The lava background keeps the screen read.
+LIGHT_UI = """\
+var _baseos_glass: Array = []
+var _baseos_glass_flat: Shader
+var _baseos_background: BackgroundStyleController
+var _baseos_glass_inputs: Array = []
+
+
+func _baseos_light_ui() -> void:
+    for overlay in find_children("*", "ColorRect", true, false):
+        var corners: = overlay.material as ShaderMaterial
+        if corners == null or corners.shader == null or corners.shader.resource_path != "res://scenes/outline.gdshader":
+            continue
+        var full: Vector2 = overlay.size
+        var screen: Vector2 = corners.get_shader_parameter("size")
+        var radius = corners.get_shader_parameter("corner_radius")
+        var noise = corners.get_shader_parameter("noise_intensity")
+        # The shader measures in units of the screen height. The noise moves the edge by half of its intensity.
+        var reach: float = ((0.2 if radius == null else radius) + (0.01 if noise == null else noise)) * full.y + 4.0
+        var band: = Vector2(reach * full.x * screen.y / (screen.x * full.y), reach).min(full / 2.0)
+        var points: = PackedVector2Array()
+        for rect in [Rect2(0, 0, full.x, band.y), Rect2(0, full.y - band.y, full.x, band.y), Rect2(0, band.y, band.x, full.y - 2.0 * band.y), Rect2(full.x - band.x, band.y, band.x, full.y - 2.0 * band.y)]:
+            points.append_array([rect.position, Vector2(rect.end.x, rect.position.y), rect.end, Vector2(rect.position.x, rect.end.y)])
+        var edge: = Polygon2D.new()
+        # With a texture of one pixel, the UV values are parts of the full rect.
+        edge.texture = ImageTexture.create_from_image(Image.create(1, 1, false, Image.FORMAT_RGBA8))
+        edge.polygon = points
+        edge.uv = PackedVector2Array(Array(points).map(func(point): return point / full))
+        edge.polygons = range(4).map(func(i): return PackedInt32Array([i * 4, i * 4 + 1, i * 4 + 2, i * 4 + 3]))
+        edge.color = overlay.color
+        edge.use_parent_material = true
+        overlay.add_child(edge)
+        # A rect of zero size draws nothing. The band keeps the place of the full rect.
+        overlay.set_anchors_preset(Control.PRESET_TOP_LEFT)
+        overlay.size = Vector2.ZERO
+    _baseos_background = find_child("Background", true, false) as BackgroundStyleController
+    if _baseos_background == null:
+        return
+    _baseos_glass_flat = Shader.new()
+    _baseos_glass_flat.code = "#define GLASS_FLAT\\n" + load("res://scenes/liquid_glass.gdshader").code
+    get_tree().node_added.connect(_baseos_glass_added)
+    for node in find_children("*", "Control", true, false):
+        _baseos_glass_added(node)
+    get_tree().process_frame.connect(_baseos_glass_sync)
+
+
+func _baseos_glass_added(node: Node) -> void:
+    var panel: = node as Control
+    if panel == null or not panel.material is ShaderMaterial or panel.material.shader == null or panel.material.shader.resource_path != "res://scenes/liquid_glass.gdshader":
+        return
+    # Other screens put more layers between the background and their glass.
+    var home: = Screen.get_screen("main")
+    if home == null or not home.is_ancestor_of(panel):
+        return
+    # Other panels can use the same material resource.
+    panel.material = panel.material.duplicate()
+    _baseos_glass.append(panel)
+    panel.tree_exiting.connect(func(): _baseos_glass.erase(panel))
+    _baseos_glass_inputs = []
+
+
+# Runs one time for each frame. It reads the background state and stops when
+# the state did not change, so a frame with no change has no material writes.
+func _baseos_glass_sync() -> void:
+    var background: = _baseos_background
+    if get_tree().paused or _baseos_glass.is_empty() or not background.is_visible_in_tree():
+        return
+    var dots: = background.dots_rect.material as ShaderMaterial
+    var inputs: = [background._bg_color, background._dot_color, dots.get_shader_parameter("dot_size"), background.dots_rect.visible, background.lava_rect.visible, background.gradient_rect.visible, background.gradient_rect.flip_v]
+    if inputs == _baseos_glass_inputs:
+        return
+    _baseos_glass_inputs = inputs
+    var flat: bool = not inputs[4]
+    # The mean of the dotted background: a round dot covers pi / 4 of the square of its size.
+    var dot_size: float = 0.3 if inputs[2] == null else inputs[2]
+    var color: Color = inputs[0].lerp(inputs[1], clampf(0.785 * dot_size * dot_size, 0.0, 1.0)) if inputs[3] else inputs[0]
+    for panel in _baseos_glass:
+        var glass: = panel.material as ShaderMaterial
+        if (glass.shader == _baseos_glass_flat) != flat:
+            glass.shader = _baseos_glass_flat if flat else load("res://scenes/liquid_glass.gdshader")
+            # Socket gives each glass panel a helper that copies the screen.
+            for helper in panel.get_children(true):
+                if helper is BackBufferCopy:
+                    helper.queue_free()
+            if not flat:
+                panel.add_child(load("res://scripts/glass_backbuffer.gd").new(), false, Node.INTERNAL_MODE_FRONT)
+        if flat:
+            glass.set_shader_parameter("backdrop_color", color)
+            glass.set_shader_parameter("backdrop_fog", background.gradient_rect.texture)
+            glass.set_shader_parameter("backdrop_fog_strength", 1.0 if inputs[5] else 0.0)
+            glass.set_shader_parameter("backdrop_fog_flip", 1.0 if inputs[6] else 0.0)
 """
 FPS_START = """\
     set_process(OS.get_environment("SOCKET_FPS_DIAGNOSTICS") == "1")
@@ -68,16 +257,94 @@ FPS_START = """\
         _fps_started_usec = Time.get_ticks_usec()
         _fps_last_usec = _fps_started_usec
         _fps_drawn_frames = Engine.get_frames_drawn()
+        _fps_process_frame = Engine.get_process_frames()
+        # Zero files identify a cold shader cache in the startup record.
+        _fps_cache_files = 0
+        for folder in DirAccess.get_directories_at("user://shader_cache"):
+            var group: = "user://shader_cache/".path_join(folder)
+            _fps_cache_files += DirAccess.get_files_at(group).size()
+            for variant in DirAccess.get_directories_at(group):
+                _fps_cache_files += DirAccess.get_files_at(group.path_join(variant)).size()
+        RenderingServer.viewport_set_measure_render_time(get_viewport_rid(), true)
+        RenderingServer.viewport_set_measure_render_time(get_tree().root.get_viewport_rid(), true)
         _fps_log = FileAccess.open("user://render-performance.jsonl", FileAccess.WRITE)
         if _fps_log == null:
             push_error("Socket: cannot open render-performance.jsonl: " + str(FileAccess.get_open_error()))
 """
 FPS_PROCESS = """\
+# Release the extra samples after two intervals below 12 fps on the live carousel.
+# Normal navigation on the RG SP runs at about 28 to 37 fps.
+func _baseos_watch_aa() -> void:
+    var slow: = 0
+    while msaa_3d != Viewport.MSAA_DISABLED:
+        var tree: = get_tree()
+        var start: = Time.get_ticks_usec()
+        var drawn: = Engine.get_frames_drawn()
+        var active: = _baseos_aa_carousel()
+        await tree.create_timer(3.0, false, false, true).timeout
+        var usec: = Time.get_ticks_usec() - start
+        if active and _baseos_aa_carousel() and (Engine.get_frames_drawn() - drawn) * 1000000.0 < 12.0 * usec:
+            slow += 1
+            if slow == 2:
+                msaa_3d = Viewport.MSAA_DISABLED
+                print("Socket: disabled MSAA for this session after sustained rendering below 12 fps.")
+        else:
+            slow = 0
+
+
+func _baseos_aa_carousel() -> bool:
+    return render_target_update_mode == SubViewport.UPDATE_ALWAYS and (Engine.max_fps == 0 or Engine.max_fps > 12) and get_tree().root.get_meta("socket_shader_startup_complete", false) and Screen.screens_open.size() == 1 and Screen.screens_open[0].name == &"Screen_MainMenu"
+
+
+func _fps_write(record: Dictionary) -> void:
+    var line: = JSON.stringify(record)
+    if _fps_log != null:
+        _fps_log.store_line(line)
+        _fps_log.flush()
+    print("Socket render: ", line)
+
+
+func _fps_p95(values: PackedInt32Array) -> float:
+    if values.is_empty():
+        return 0.0
+    values.sort()
+    return values[ceili(values.size() * 0.95) - 1] / 1000.0
+
+
+func _fps_restart(now: int) -> void:
+    _fps_started_usec = now
+    _fps_last_usec = now
+    _fps_drawn_frames = Engine.get_frames_drawn()
+    _fps_frames = 0
+    _fps_worst_usec = 0
+    _fps_frame_usec.clear()
+    _fps_nav_usec.clear()
+
+
 func _process(_delta: float) -> void:
     var now: = Time.get_ticks_usec()
-    _fps_worst_usec = maxi(_fps_worst_usec, now - _fps_last_usec)
+    var process_frame: = Engine.get_process_frames()
+    var resumed: = process_frame - _fps_process_frame > 1
+    _fps_process_frame = process_frame
+    if resumed or int(get_tree().root.get_meta("socket_game_return_usec", 0)) > _fps_last_usec:
+        # The launcher had no frame to present while paused or in a game.
+        _fps_restart(now)
+        return
+    var frame: = now - _fps_last_usec
+    _fps_worst_usec = maxi(_fps_worst_usec, frame)
     _fps_last_usec = now
     _fps_frames += 1
+    _fps_frame_usec.append(frame)
+    # Navigation frames: a button is down, or was down in the last 0.5 seconds.
+    # This includes the carousel motion that follows a press.
+    if Input.is_anything_pressed():
+        _fps_nav_until_usec = now + 500000
+    var navigating: = now < _fps_nav_until_usec
+    if navigating:
+        _fps_nav_usec.append(frame)
+    if frame >= 250000:
+        # A percentile or an average can hide a rare stall. Record each one.
+        _fps_write({"stall_ms": frame / 1000.0, "at_seconds": now / 1000000.0, "navigating": navigating, "screens": Screen.screens_open.map(func(screen): return String(screen.name))})
     var seconds: = (now - _fps_started_usec) / 1000000.0
     if seconds < 5.0:
         return
@@ -101,20 +368,36 @@ func _process(_delta: float) -> void:
             if material != null and material.shader != null and not shaders.has(material.shader.resource_path):
                 shaders.append(material.shader.resource_path)
     sample["shaders_3d"] = shaders
-    var line: = JSON.stringify(sample)
-    if _fps_log != null:
-        _fps_log.store_line(line)
-        _fps_log.flush()
-    print("Socket render: ", line)
-    _fps_started_usec = now
-    _fps_drawn_frames = drawn
-    _fps_frames = 0
-    _fps_worst_usec = 0
-"""
+    # The first sample that shows a shader also shows its first-use cost.
+    sample["new_shaders_3d"] = shaders.filter(func(path): return not _fps_seen_shaders.has(path))
+    _fps_seen_shaders.append_array(sample["new_shaders_3d"])
+    sample["p95_frame_ms"] = _fps_p95(_fps_frame_usec)
+    # The p95 calculation sorted the frame times. Allow for panel clock jitter.
+    sample["frames_over_20ms_pct"] = 100.0 * (_fps_frame_usec.size() - _fps_frame_usec.bsearch(20000, false)) / _fps_frame_usec.size()
+    sample["viewport_3d_draw_cpu_ms"] = RenderingServer.viewport_get_measured_render_time_cpu(get_viewport_rid())
+    sample["window_draw_cpu_ms"] = RenderingServer.viewport_get_measured_render_time_cpu(root.get_viewport_rid())
+    sample["nav_frames"] = _fps_nav_usec.size()
+    sample["nav_p95_ms"] = _fps_p95(_fps_nav_usec)
+    # The sort for the percentile put the slowest navigation frame last.
+    sample["nav_worst_ms"] = 0.0 if _fps_nav_usec.is_empty() else _fps_nav_usec[-1] / 1000.0
+    sample["msaa_3d"] = msaa_3d
+    sample["tile_msaa_supported"] = OS.get_environment("SOCKET_TILE_MSAA") == "1"
+    for name in %s:
+        sample[name] = OS.get_environment(name)
+    if _fps_cache_files >= 0:
+        # Startup record, one time: cold or cached start and the warmup times.
+        sample["shader_cache_files_at_start"] = _fps_cache_files
+        sample["shader_startup"] = root.get_meta("socket_shader_startup_stats", {})
+        _fps_cache_files = -1
+    _fps_write(sample)
+    _fps_restart(now)
+""" % BENCH_NAMES
 
 
 # (file, pattern, replacement, expected matches, flags[, version])
 EDITS = [
+    ("scripts/autoload/settings_manager.gd", r'^(\s*"render_scale_3d": )0\.85(,)$', r"\g<1>0.75\2", 1, M),
+    only(MODERN, ("scripts/game.gd", r"^(\t)WorkerThreadPool\.add_task\((func\(\): _on_support_image_prefetched)", r"\1FrontendBridge.prefetch_artwork(\2", 1, M)),
     # Scrape results: reload the texture and game info after the paths change.
     # Skip the reset in 0.10.1. It already reloads the game.
     (MANAGER, r'^(\t+)(game\.support_texture_path = (?!""\s*$).*\n)', r"\1\2\1game.force_reload_texture()\n", 2, M),
@@ -216,43 +499,52 @@ func _enter_tree() -> void:
 """),
 
     # Warm the actual renderer before navigation, including empty libraries.
+    # Also make small text clean on the panel. See FONT_FIX.
     prepend("scenes/main.gd", "_ready", """\
     if OS.get_name() == "Linux":
+""" + FONT_FIX + """\
         await preload("res://addons/FrontendPlugin/shader_startup.gd").run(self)
 """),
+    # Draw less of the screen in each 2D frame. See LIGHT_UI.
+    only(V101, ("scenes/main.gd", r"^(\t\tawait preload\(\"res://addons/FrontendPlugin/shader_startup\.gd\"\))", gd("""\
+        if OS.get_environment("SOCKET_UI_LIGHT") != "0":
+            _baseos_light_ui()
+""") + r"\1", 1, M)),
+    only(V101, ("scenes/main.gd", r"\n+\Z", gd("\n\n\n" + LIGHT_UI), 1, 0)),
+    only(V101, ("scenes/liquid_glass.gdshader", r"^(uniform sampler2D screen_texture : hint_screen_texture[^\n]*\n)", lambda m: gd("""\
+// GLASS_FLAT is the BaseOS variant for the main menu. It gets the background
+// below the panel as inputs and does not read the screen.
+#ifdef GLASS_FLAT
+uniform sampler2D backdrop_fog : filter_linear, repeat_disable;
+uniform vec4 backdrop_color = vec4(0.7, 0.7, 0.7, 1.0);
+uniform float backdrop_fog_strength = 0.0;
+uniform float backdrop_fog_flip = 0.0;
+#else
+""") + m[1] + "#endif\n", 1, M)),
+    only(V101, ("scenes/liquid_glass.gdshader", r"^(vec3 blurred_screen\(.*?^\}\n)", r"#ifndef GLASS_FLAT\n\1#endif\n", 1, S)),
+    only(V101, ("scenes/liquid_glass.gdshader", r"^(\s*)(vec3 bg = blurred_screen\([^\n]*\n)", lambda m: gd("""\
+#ifdef GLASS_FLAT
+    vec4 fog = texture(backdrop_fog, vec2(warped_uv.x, mix(warped_uv.y, 1.0 - warped_uv.y, backdrop_fog_flip))) * vec4(1.0, 1.0, 1.0, backdrop_fog_strength);
+    vec3 bg = mix(backdrop_color.rgb, fog.rgb, fog.a);
+#else
+""") + m[1] + m[2] + "#endif\n", 1, M)),
     # Startup replaces the delayed/off-frustum upstream warmups on Linux.
     *[only(MODERN, prepend("scenes/cartridge_carousel.gd", func, """\
     if OS.get_name() == "Linux":
         return
 """)) for func in ("_warm_up_shaders", "warm_up_platforms")],
 
-    # 3D view: optional frame-rate log, no MSAA, a 2/3 resolution limit,
-    # one tonemap pass and the display edge filter. 0.3.2 has a simpler view.
+    # 3D view: optional frame-rate log, no MSAA, a panel resolution limit,
+    # one shadow pass, one tonemap pass and the display edge filter. 0.3.2 has
+    # a simpler view.
+    # Environment variables select the benchmark candidates for the device.
     *[only(MODERN, edit) for edit in [
     (RENDER_SCALE, r"(?<=\n)(?=\nfunc _ready\(\))", gd(FPS_VARS), 1, M),
-    (RENDER_SCALE, r"^(\t_display\.texture = .*\n)", lambda m: m[1] + gd("""\
-    var display_material := ShaderMaterial.new()
-    display_material.shader = load("res://shaders/display_aa.gdshader")
+    (RENDER_SCALE, r"^(\t_display\.texture = .*\n)", lambda m: m[1] + gd(DISPLAY_MATERIAL + """\
     _display.material = display_material
 """), 1, M),
-    (RENDER_SCALE, r"^\tmsaa_3d = .*\n", gd("""\
-    msaa_3d = Viewport.MSAA_DISABLED
-    # Compatibility tonemaps each shadowed light pass alone, so lit labels clip.
-    # Neutral adjustments make Godot tonemap once after all passes. A mild
-    # Reinhard curve then keeps highlight detail. The 2D UI does not change.
-    for node in find_children("*", "WorldEnvironment", true, false):
-        var world: = node as WorldEnvironment
-        if world.environment == null:
-            continue
-        world.environment = world.environment.duplicate()
-        world.environment.tonemap_mode = Environment.TONE_MAPPER_REINHARDT
-        world.environment.tonemap_white = 1.3
-        world.environment.adjustment_enabled = true
-        world.environment.adjustment_brightness = 1.0
-        world.environment.adjustment_contrast = 1.0
-        world.environment.adjustment_saturation = 1.05
-""" + FPS_START), 1, M),
-    (RENDER_SCALE, r"^\tvar pixels: = .*\n", "\tvar pixels: = requested.min(native * (2.0 / 3.0))\n", 1, M),
+    (RENDER_SCALE, r"^\tmsaa_3d = .*\n", gd(BENCH_START + TONEMAP + FPS_START), 1, M),
+    (RENDER_SCALE, r"^\tvar pixels: = .*\n", "\tvar pixels: = requested.min(native * minf(_scale, _baseos_cap))\n", 1, M),
     (RENDER_SCALE, r"\n+\Z", gd("\n\n" + FPS_PROCESS), 1, 0),
     ]],
 
@@ -264,6 +556,8 @@ func _enter_tree() -> void:
         # A hidden container stops updating its viewport.
         if has_node("BottomScreen"):
             $BottomScreen.hide()
+        # The UI has its own viewport. Draw its vertices on whole panel pixels.
+        get_node("MainScreen/SubViewport").snap_2d_vertices_to_pixel = OS.get_environment("SOCKET_UI_SNAP") != "0"
         get_tree().root.size_changed.connect(_baseos_fit_ui)
         $MainScreen.resized.connect(_baseos_fit_ui)
         _baseos_fit_ui()
@@ -287,38 +581,47 @@ func _baseos_fit_ui() -> void:
     # so larger screens keep Socket's stretched layout-size viewport.
     if pixels.x > container.size.x or pixels.y > container.size.y:
         container.scale = Vector2.ONE
+        viewport.oversampling_override = 0.0
         viewport.size_2d_override = Vector2i.ZERO
         container.stretch = true
         return
     container.stretch = false
+    # Glyphs at two times the panel size. See FONT_FIX.
+    viewport.oversampling_override = 2.0 * pixels.x / container.size.x if OS.get_environment("SOCKET_UI_FONT") != "0" else 0.0
     viewport.size = pixels
     viewport.size_2d_override = Vector2i(container.size)
     viewport.size_2d_override_stretch = true
     container.scale = container.size / Vector2(pixels)
 """), 1, 0),
-    (RENDER_SCALE, r"(?<=\n)(?=\nfunc _ready\(\))", gd(FPS_VARS + "var _baseos_scale: = 1.0\n"), 1, M),
-    prepend(RENDER_SCALE, "_ready", FPS_START + """\
-    # Filter edges after the upscale, and size the view again on screen changes.
-    var display_material := ShaderMaterial.new()
-    display_material.shader = load("res://shaders/display_aa.gdshader")
-    get_parent().material = display_material
+    (RENDER_SCALE, r"(?<=\n)(?=\nfunc _ready\(\))", gd(FPS_VARS + "var _baseos_scale: = 1.0\nvar _display: TextureRect\n"), 1, M),
+    prepend(RENDER_SCALE, "_ready", BENCH_START + FPS_START + """\
+    # The scene sets a second 0.85 scale. Keep the chosen resolution through the display pass.
+    scaling_3d_scale = 1.0
+    var container := get_parent() as SubViewportContainer
+    container.stretch = false
+    container.self_modulate.a = 0.0
+    _display = TextureRect.new()
+    _display.texture = get_texture()
+    _display.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+    _display.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    _display.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    container.add_child.call_deferred(_display)
+""" + DISPLAY_MATERIAL + """\
+    _display.material = display_material
     get_parent().resized.connect(func(): _apply(_baseos_scale))
     get_tree().root.size_changed.connect(func(): _apply(_baseos_scale))
 """),
     (RENDER_SCALE, r"^func _apply\((\w+)(.*\n)(?:\t.*\n)+", lambda m: f"func _apply({m[1]}{m[2]}" + gd(f"""\
-    # Render 3D at most at 2/3 of the panel pixels. An integer shrink of the
-    # container lowers the pixels and the 3D scale sets the rest.
     _baseos_scale = {m[1]}
-    var container: = get_parent() as SubViewportContainer
-    var root: = get_tree().root
-    var logical: = root.get_visible_rect().size.x
-    if container == null or container.size.x < 1.0 or logical < 1.0:
-        scaling_3d_scale = clampf({m[1]}, 0.5, 1.0)
+    var container := get_parent() as SubViewportContainer
+    var root := get_tree().root
+    var logical := root.get_visible_rect().size
+    if container == null or container.size.x < 1.0 or logical.x < 1.0 or logical.y < 1.0:
         return
-    var native: = container.size.x * root.size.x / logical
-    var target: = minf(container.size.x * clampf({m[1]}, 0.5, 1.0), native * 2.0 / 3.0)
-    container.stretch_shrink = maxi(1, floori(container.size.x / target))
-    scaling_3d_scale = clampf(target * container.stretch_shrink / container.size.x, 0.25, 1.0)
+    var panel_scale := clampf({m[1]}, 0.5, 1.0)
+    var native := container.size * Vector2(root.size) / logical
+    var pixels := (container.size * panel_scale).min(native * minf(panel_scale, _baseos_cap))
+    size = Vector2i(pixels.round()).maxi(2)
 """), 1, M),
     (RENDER_SCALE, r"\n+\Z", gd("\n\n" + FPS_PROCESS), 1, 0),
     ]],

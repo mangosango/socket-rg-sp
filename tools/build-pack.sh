@@ -35,7 +35,7 @@ use_source() {
 	cp "$2" "$RES/$1"
 }
 mkdir -p "$WORK/src"
-SCRIPTS="scenes/main.gd scripts/autoload/manager.gd scenes/screen_apps.gd scenes/screen_edit_platform.gd scripts/autoload/theme_manager.gd scripts/screens/screen.gd scenes/focus_overlay.gd scripts/cartridge.gd scenes/render_scale_3d.gd scenes/cartridge_carousel.gd scenes/keyboard_avoider.gd scripts/models/scrapers/scraper_games_db.gd scripts/autoload/retro_achievements.gd scripts/screens/screen_customize.gd"
+SCRIPTS="scenes/main.gd scripts/game.gd scripts/autoload/manager.gd scripts/autoload/settings_manager.gd scenes/screen_apps.gd scenes/screen_edit_platform.gd scripts/autoload/theme_manager.gd scripts/screens/screen.gd scenes/focus_overlay.gd scripts/cartridge.gd scenes/render_scale_3d.gd scenes/cartridge_carousel.gd scenes/keyboard_avoider.gd scripts/models/scrapers/scraper_games_db.gd scripts/autoload/retro_achievements.gd scripts/screens/screen_customize.gd"
 if [ -f "$RES/scripts/autoload/romm.gdc" ]; then
 	SCRIPTS="$SCRIPTS scripts/autoload/romm.gd"
 fi

@@ -14,6 +14,11 @@ if [ ! -d "$SRC" ]; then
 	git clone --depth 1 -b 4.7.1-stable https://github.com/godotengine/godot.git "$SRC"
 	git -C "$SRC" apply "$HERE/godot-fbdev.patch"
 fi
+for patch in godot-fbdev-msaa.patch godot-gles3-msaa-reuse.patch godot-gles3-msaa-copy.patch; do
+	if ! git -C "$SRC" apply --reverse --check "$HERE/$patch" 2>/dev/null; then
+		git -C "$SRC" apply "$HERE/$patch"
+	fi
+done
 rm -rf "$SRC/platform/linuxbsd/fbdev"
 cp -R "$HERE/fbdev" "$SRC/platform/linuxbsd/fbdev"
 

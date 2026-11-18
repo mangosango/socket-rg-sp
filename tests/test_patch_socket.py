@@ -31,9 +31,11 @@ class PatchSocketTests(unittest.TestCase):
             (tmp / path).parent.mkdir(parents=True, exist_ok=True)
             (tmp / path).write_text(STUB)
         project_binary(tmp / "project.binary", version)
+        before = (tmp / "project.binary").read_bytes()
         result = subprocess.run([sys.executable, "-I", str(ROOT / "tools/patch-socket.py"), str(tmp),
                                  str(tmp / "project.binary")], capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((tmp / "project.binary").read_bytes(), before)
         for path in files:
             self.assertEqual((tmp / path).read_text(), STUB)
         return result.stderr
@@ -109,6 +111,80 @@ class PatchSocketTests(unittest.TestCase):
                 self.assertEqual(source.count('shader_startup.gd'), 1)
                 self.assertLess(source.index('shader_startup.gd'), source.index('await _show_warning_prompt()'))
                 self.assertIn('await ', source.split('shader_startup.gd')[0].splitlines()[-1])
+
+    def patched(self, path, version, source):
+        for edit_path, pattern, repl, count, flags, *versions in patch_socket.EDITS:
+            if edit_path == path and (not versions or version in versions):
+                source, matches = re.subn(pattern, repl, source, flags=flags)
+                self.assertEqual(matches, count, pattern)
+        return source
+
+    def test_startup_hook_makes_small_text_clean_before_the_warmup(self):
+        for version in patch_socket.VERSIONS:
+            hook = self.patched("scenes/main.gd", version, 'extends Node\nfunc _ready() -> void:\n\tpass\n')
+            self.assertTrue(hook.split("func _ready() -> void:\n", 1)[1].startswith('\tif OS.get_name() == "Linux":\n\t\tvar window: = get_tree().root\n'))
+            for text in ('window.snap_2d_vertices_to_pixel = OS.get_environment("SOCKET_UI_SNAP") != "0"',
+                         'if OS.get_environment("SOCKET_UI_FONT") != "0":', "load(path).oversampling = 0.0",
+                         "window.oversampling_override = 2.0 * ui_scale if ui_scale < 1.0 else 0.0", "window.size_changed.connect(fit)"):
+                self.assertLess(hook.index(text), hook.index("shader_startup.gd"), text)
+            self.assertEqual(hook.count("DepartureMono-Regular."), 2)
+            self.assertNotIn("    ", hook, "Socket sources use tabs")
+
+    def test_render_candidates_keep_the_defaults_without_variables(self):
+        modern = ("extends SubViewport\n\nfunc _ready() -> void:\n\t_display.texture = get_texture()\n\tmsaa_3d = Viewport.MSAA_2X\n\t_apply()\n\n"
+                  "func _apply() -> void:\n\tvar pixels: = native if requested.x > native.x else requested\n")
+        legacy = "extends SubViewport\n\nfunc _ready() -> void:\n\tpass\n\nfunc _apply(scale: float) -> void:\n\tpass\n"
+        for version in patch_socket.VERSIONS:
+            with self.subTest(version=version):
+                view = self.patched(patch_socket.RENDER_SCALE, version, legacy if version == "0.3.2" else modern)
+                self.assertIn("var _baseos_cap: = 1.0\n", view)
+                self.assertIn("native * minf(", view)
+                self.assertNotIn("2.0 / 3.0)", view)
+                # Each candidate needs its variable. The shader define keeps its escape.
+                for text in ('if cap.is_valid_float():\n\t\t_baseos_cap = clampf(cap.to_float(), 0.05, 1.0)',
+                             'msaa_3d = {"2": Viewport.MSAA_2X, "4": Viewport.MSAA_4X}.get(OS.get_environment("SOCKET_3D_MSAA"), Viewport.MSAA_DISABLED)',
+                             # One shadow pass is the default. "0" removes the shadow map and "4" keeps four splits.
+                             'var shadow_map: = shadows != "0"',
+                             'if not shadow_map:\n\t\t\tlight.shadow_enabled = false',
+                             'elif shadows != "4":\n',
+                             'if OS.get_environment("SOCKET_3D_FILTER") == "linear":',
+                             'linear.code = "#define DISPLAY_LINEAR\\n" + display_material.shader.code',
+                             'display_material.shader = load("res://shaders/display_aa.gdshader")',
+                             '"p95_frame_ms"', '"nav_p95_ms"', '"stall_ms"', '"new_shaders_3d"', '"shader_startup"', '"shader_cache_files_at_start"'):
+                    self.assertIn(text, view)
+                for name in patch_socket.BENCH_NAMES:
+                    self.assertIn(name, view)
+                # The separate tonemap pass exists only with the shadow map.
+                self.assertEqual("world.environment.adjustment_enabled = shadow_map\n" in view, version != "0.3.2")
+                self.assertNotIn("    ", view, "Socket sources use tabs")
+        avoider = self.patched(patch_socket.KEYBOARD_AVOIDER, "0.3.2", STUB)
+        self.assertIn('get_node("MainScreen/SubViewport").snap_2d_vertices_to_pixel = OS.get_environment("SOCKET_UI_SNAP") != "0"', avoider)
+        self.assertIn('viewport.oversampling_override = 2.0 * pixels.x / container.size.x if OS.get_environment("SOCKET_UI_FONT") != "0" else 0.0', avoider)
+
+    def test_light_ui_reads_no_screen_and_does_no_work_on_a_steady_frame(self):
+        glass = ("uniform sampler2D screen_texture : hint_screen_texture, filter_linear, repeat_disable;\n"
+                 "vec3 blurred_screen(vec2 uv) {\n\treturn texture(screen_texture, uv).rgb;\n}\n"
+                 "void fragment() {\n\tvec3 bg = blurred_screen(warped_uv, chroma_offset, SCREEN_PIXEL_SIZE);\n}\n")
+        for version in patch_socket.VERSIONS:
+            with self.subTest(version=version):
+                main = self.patched("scenes/main.gd", version, "extends Node\n\nfunc _ready() -> void:\n\tpass\n")
+                self.assertEqual("func _baseos_light_ui()" in main, version == "0.10.1")
+                if version != "0.10.1":
+                    continue
+                self.assertLess(main.index('if OS.get_environment("SOCKET_UI_LIGHT") != "0":\n\t\t\t_baseos_light_ui()'), main.index("shader_startup.gd"))
+                sync = main[main.index("func _baseos_glass_sync()"):]
+                # The guards and the compare come before each material write, and the frame path has no scene search.
+                self.assertLess(sync.index("get_tree().paused"), sync.index("if inputs == _baseos_glass_inputs:\n\t\treturn"))
+                self.assertLess(sync.index("if inputs == _baseos_glass_inputs:\n\t\treturn"), sync.index("set_shader_parameter"))
+                self.assertNotIn("find_child", sync)
+                self.assertNotIn("    ", main, "Socket sources use tabs")
+                shader = self.patched("scenes/liquid_glass.gdshader", version, glass + "const int BLUR_TAPS = 8;\n")
+                flat = re.sub(r"#ifdef GLASS_FLAT\n(.*?)(?:#else\n.*?)?#endif\n", r"\1", re.sub(r"#ifndef GLASS_FLAT\n.*?#endif\n", "", shader, flags=re.S), flags=re.S)
+                self.assertNotIn("screen_texture", flat)
+                self.assertIn("vec3 bg = mix(backdrop_color.rgb, fog.rgb, fog.a);", flat)
+                screen = re.sub(r"#ifdef GLASS_FLAT\n.*?(?:#else\n(.*?))?#endif\n", r"\1", shader, flags=re.S).replace("#ifndef GLASS_FLAT\n", "").replace("#endif\n", "")
+                # Without the define, the shader is the Socket shader with fewer blur taps.
+                self.assertEqual(re.sub(r"// [^\n]*\n", "", screen).replace("BLUR_TAPS = 4", "BLUR_TAPS = 8"), glass + "const int BLUR_TAPS = 8;\n")
 
     def test_platform_warmup_guard_is_modern_only(self):
         edit = next(edit for edit in patch_socket.EDITS if "warm_up_platforms" in edit[1])

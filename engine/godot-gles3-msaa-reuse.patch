@@ -1,0 +1,34 @@
+--- a/drivers/gles3/storage/render_scene_buffers_gles3.cpp
++++ b/drivers/gles3/storage/render_scene_buffers_gles3.cpp
+@@ -197,11 +197,20 @@
+ 	uint32_t depth_format_size = 4;
+ 	bool use_multiview = view_count > 1;
+ 
++	if (use_internal_buffer && msaa3d.check_fbo_cache) {
++		_clear_msaa3d_buffers();
++	}
+ 	if (!use_internal_buffer && internal3d.color != 0) {
++		// The tile MSAA framebuffer shares the intermediate textures.
++		if (msaa3d.fbo != 0 && !msaa3d.needs_resolve) {
++			_clear_msaa3d_buffers();
++		}
+ 		_clear_intermediate_buffers();
+ 	}
+ 
+-	if ((!use_internal_buffer || internal3d.color != 0) && (msaa3d.mode == RSE::VIEWPORT_MSAA_DISABLED || msaa3d.color != 0)) {
++	// Tile MSAA uses existing textures, so it has no separate color buffer.
++	bool msaa_ready = msaa3d.mode == RSE::VIEWPORT_MSAA_DISABLED || msaa3d.color != 0 || (use_internal_buffer ? msaa3d.fbo != 0 : msaa3d.check_fbo_cache);
++	if ((!use_internal_buffer || internal3d.color != 0) && msaa_ready) {
+ 		// already setup!
+ 		return;
+ 	}
+@@ -421,6 +430,9 @@
+ 		glDeleteFramebuffers(1, &fbo);
+ 	}
+ 	msaa3d.cached_fbos.clear();
++	msaa3d.samples = 1;
++	msaa3d.check_fbo_cache = false;
++	msaa3d.needs_resolve = false;
+ 
+ 	if (msaa3d.fbo) {
+ 		glDeleteFramebuffers(1, &msaa3d.fbo);
