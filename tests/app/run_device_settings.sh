@@ -14,12 +14,16 @@ cat > "$PLUGIN/wifi_settings.gd" <<'PAGE'
 extends VBoxContainer
 signal back_requested
 var backs := 0
+var row_style := Callable()
 func _ready() -> void:
 	for index in 30:
 		var button := Button.new()
 		button.name = "Network%d" % index
 		button.text = button.name
 		add_child(button)
+	# The first row is the power switch row of this page.
+	get_node("Network0").text = "Wi-Fi: On"
+	row_style.call(get_node("Network0"))
 func go_back() -> void:
 	backs += 1
 	back_requested.emit()

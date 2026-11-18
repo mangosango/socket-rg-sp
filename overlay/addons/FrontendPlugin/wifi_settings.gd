@@ -43,6 +43,9 @@ var _field: LineEdit
 var _preview: Label
 var _caps := false
 var _symbols := false
+# Device Settings sets this function. It gives the power switch row the look
+# of the panel rows. A page that is alone keeps the theme look.
+var row_style := Callable()
 
 
 func _ready() -> void:
@@ -261,9 +264,9 @@ func _render(focus := -1) -> void:
 			if state in ["", "external"]:
 				_row("Back", back_requested.emit)
 			elif state == "off":
-				_row("Wi-Fi: Off", _send.bind("on"))
+				_power("Wi-Fi: Off", "on")
 			else:
-				_row("Wi-Fi: On", _send.bind("off"))
+				_power("Wi-Fi: On", "off")
 				_row("Choose a network", _scan)
 				if saved != "":
 					if state != "connected":
@@ -347,13 +350,21 @@ func _label(text: String) -> Label:
 	return label
 
 
-func _row(text: String, action: Callable, parent: Node = self) -> void:
+# The power switch row. It sends the command to the worker.
+func _power(text: String, command: String) -> void:
+	var button := _row(text, _send.bind(command))
+	if row_style.is_valid():
+		row_style.call(button)
+
+
+func _row(text: String, action: Callable, parent: Node = self) -> Button:
 	var button := Button.new()
 	button.text = text
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	button.pressed.connect(action)
 	parent.add_child(button)
+	return button
 
 
 func _scan() -> void:

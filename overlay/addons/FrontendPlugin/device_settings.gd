@@ -52,7 +52,7 @@ const RADIOS := {
 # Request name, minimum, maximum and step of each level row.
 const LEVELS := {"Brightness": ["brightness", 1, 10, 1], "Volume": ["volume", 0, 100, 5]}
 const TITLE := "Device Settings"
-const MSAA := "Cartridge MSAA"
+const MSAA := "Cartridge edge smoothing"
 const MSAA_KEY := "cartridge_msaa"
 # The titles of the pages that RetroArch opens from the Cheats row.
 const CHEATS_TITLES := ["Cheats", "Cheat files", "libretro cheat titles"]
@@ -224,10 +224,14 @@ func _build() -> void:
 	_list = VBoxContainer.new()
 	_list.add_theme_constant_override("separation", roundi(12 * _unit))
 	_body.add_child(_list)
-	_settings = get_node_or_null("/root/SettingsManager")
-	if _settings != null and not _settings.has_method("cartridge_msaa_mode"):
-		_settings = null
-	for row_name in ["Brightness", "Volume", "Wi-Fi", "Bluetooth"] + ([MSAA] if _settings != null else []) + (["Game", "Cheats"] if game else []):
+	var rows := ["Brightness", "Volume", "Wi-Fi", "Bluetooth"]
+	if game:
+		rows.append_array(["Game", "Cheats"])
+	else:
+		_settings = get_node_or_null("/root/SettingsManager")
+		if _settings != null and _settings.has_method("cartridge_msaa_mode"):
+			rows.append(MSAA)
+	for row_name in rows:
 		_list.add_child(_row(row_name))
 	layout.add_child(_hint())
 
@@ -239,10 +243,15 @@ func _label(text: String) -> Label:
 	return label
 
 
-# A list row with the look of the panel: the text and the focus outline.
 func _button(text: String) -> Button:
 	var row := Button.new()
 	row.text = text
+	_style(row)
+	return row
+
+
+# Give a row the look of the panel: the text and the focus outline.
+func _style(row: Button) -> void:
 	row.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	# The colors here are final. Socket must not change them a second time.
 	row.set_meta("socket_adaptive_surface", true)
@@ -255,12 +264,10 @@ func _button(text: String) -> Button:
 	for color in ["font_color", "font_focus_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color"]:
 		row.add_theme_color_override(color, _ink)
 	row.add_theme_color_override("font_disabled_color", Color(_ink, 0.45))
-	return row
 
 
-func _row(row_name: String) -> Button:
-	var row := _button(row_name)
-	row.name = row_name
+# The area at the right of a row. It holds the value of the row.
+func _side(row: Button) -> HBoxContainer:
 	var side := HBoxContainer.new()
 	side.name = "Side"
 	side.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -269,9 +276,32 @@ func _row(row_name: String) -> Button:
 	row.add_child(side)
 	side.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	side.offset_right = -28 * _unit
-	var value := _label("")
+	return side
+
+
+func _value(text: String) -> Label:
+	var value := _label(text)
 	value.name = "Value"
 	value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	return value
+
+
+# Give the power switch row of a radio page the look of a panel switch:
+# the radio name at the left and the state at the right.
+# The text of the row is "Name: State".
+func _style_switch(row: Button) -> void:
+	_style(row)
+	# Assistive tools continue to read the full text.
+	row.accessibility_name = row.text
+	_side(row).add_child(_value(row.text.get_slice(": ", 1)))
+	row.text = row.text.get_slice(": ", 0)
+
+
+func _row(row_name: String) -> Button:
+	var row := _button(row_name)
+	row.name = row_name
+	var side := _side(row)
+	var value := _value("")
 	if LEVELS.has(row_name):
 		row.set_meta("level", row_name)
 		var bar := ProgressBar.new()
@@ -551,6 +581,8 @@ func _open_radio(row: Button) -> void:
 		return
 	_sub = load(RADIOS[row.name]).new()
 	_sub_row = row
+	if "row_style" in _sub:
+		_sub.row_style = _style_switch
 	_sub.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	if _sub.has_signal("back_requested"):
 		_sub.connect("back_requested", _close_radio)

@@ -10,9 +10,8 @@ to close the menu. Close any open file picker first. Use the D-pad to select
 a row. Left and Right change brightness or volume. A opens a radio page,
 and B goes back. The hardware volume buttons also work while the panel is open.
 
-- **Cartridge MSAA** smooths cartridge edges in the launcher. Press **A**
-  to switch it on or off. Socket saves your choice. You can also change it
-  from the shared in-game menu. It takes effect on the carousel.
+- **Cartridge edge smoothing** appears in the Socket launcher. Press **A**
+  to switch edge smoothing on or off. Socket saves your choice.
 - **Wi-Fi** can scan for WPA2-Personal networks or join a hidden network by name. Use the
   controller keyboard to enter the password. A successful join saves the
   profile for the next boot. Switching Wi-Fi off keeps the saved profile.

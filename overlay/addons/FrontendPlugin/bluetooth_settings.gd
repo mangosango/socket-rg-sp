@@ -30,6 +30,9 @@ var _tail := ""
 var _sequence := 0
 var _poll_at := 0
 var _signature := ""
+# Device Settings sets this function. It gives the power switch row the look
+# of the panel rows. A page that is alone keeps the theme look.
+var row_style := Callable()
 var _device_path := RegEx.create_from_string("^/org/bluez/hci[0-9]+/dev_((?:[0-9A-F]{2}_){5}[0-9A-F]{2})$")
 var _control := RegEx.create_from_string("[\\x00-\\x1f\\x7f]")
 
@@ -372,6 +375,8 @@ func _render() -> void:
 		elif row.size() == 3:
 			var button := _button(id, row[1], row[2])
 			button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			if row[0] == "power" and row_style.is_valid():
+				row_style.call(button)
 			# Keep the D-pad inside this page.
 			button.focus_neighbor_left = NodePath(".")
 			button.focus_neighbor_right = NodePath(".")

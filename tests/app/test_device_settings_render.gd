@@ -129,8 +129,6 @@ func _run() -> void:
 		await process_frame
 	if not require(root.get_meta("socket_shader_startup_complete", false), "startup completes"): return
 	await wait(1.0)
-	if OS.get_environment("SOCKET_TEST_DARK") == "1":
-		root.get_node("SettingsManager").set_setting("dark_mode", true)
 	# The panel pauses the launcher. Let the launcher complete its transition first.
 	await wait(2.0)
 	if not require(root.size == Vector2i(720, 480), "the display has 720x480 pixels"): return
@@ -146,7 +144,7 @@ func _run() -> void:
 
 	root.get_node("FrontendBridge").open_device_settings()
 	panel = root.get_node("DeviceSettings")
-	if not require(panel._rows.keys() == ["Brightness", "Volume", "Wi-Fi", "Bluetooth", "Cartridge MSAA"], "launcher menu has five device settings"): return
+	if not require(panel._rows.keys() == ["Brightness", "Volume", "Wi-Fi", "Bluetooth", "Cartridge edge smoothing"], "launcher menu has five device settings"): return
 	if not require(panel._card.size.y <= panel._logical.y, "the launcher menu is on the display"): return
 	var image := await shot("root")
 	var gui: SubViewport = panel._gui
@@ -161,23 +159,29 @@ func _run() -> void:
 	if not require(gui.size == Vector2i(720, 480), "the panel draws one sample for each display pixel"): return
 	if not require(size == panel._socket_theme().default_font_size, "the text has the size of the Socket theme"): return
 
-	# Cartridge MSAA: A sets it off and on. The cartridge viewport follows.
+	# Cartridge edge smoothing: A sets it off and on. The cartridge viewport follows.
 	var settings := root.get_node("SettingsManager")
 	var mode: int = settings.cartridge_msaa_mode()
 	var views := root.find_children("*", "SubViewport", true, false).filter(func(node): return node.get_script() != null and node.get_script().resource_path == "res://scenes/render_scale_3d.gd")
 	if not require(views.size() == 1, "the launcher has one cartridge viewport"): return
-	var shown: Label = panel._rows["Cartridge MSAA"].get_node("Side/Value")
+	var smoothing: Button = panel._rows["Cartridge edge smoothing"]
+	var shown: Label = smoothing.get_node("Side/Value")
+	var text_size := smoothing.get_theme_font_size("font_size")
+	var label_width := smoothing.get_theme_font("font").get_string_size(smoothing.text, HORIZONTAL_ALIGNMENT_LEFT, -1, text_size).x
+	var state_width := shown.get_theme_font("font").get_string_size("Paused", HORIZONTAL_ALIGNMENT_RIGHT, -1, shown.get_theme_font_size("font_size")).x
+	var padding := smoothing.get_theme_stylebox("normal").get_margin(SIDE_LEFT)
+	if not require(label_width + state_width + 2 * padding < smoothing.size.x, "the full smoothing label and its longest state fit in the row"): return
 	if mode == Viewport.MSAA_DISABLED:
-		if not require(panel._rows["Cartridge MSAA"].disabled and shown.text == "Off" and views[0].msaa_3d == Viewport.MSAA_DISABLED, "no permitted MSAA: the row is Off and has no function"): return
+		if not require(smoothing.disabled and shown.text == "Off" and views[0].msaa_3d == Viewport.MSAA_DISABLED, "no permitted MSAA: the row is Off and has no function"): return
 	else:
 		if not require(settings.get_setting("cartridge_msaa") == true and shown.text == "On" and views[0].msaa_3d == mode, "the row shows On and the cartridge viewport has MSAA"): return
-		if not await choose("Cartridge MSAA"): return
+		if not await choose("Cartridge edge smoothing"): return
 		if not require(settings.get_setting("cartridge_msaa") == false and shown.text == "Off" and views[0].msaa_3d == Viewport.MSAA_DISABLED, "A sets MSAA off in the cartridge viewport"): return
 		await shot("msaa-off")
 		await press(JOY_BUTTON_A)
 		await wait(0.6)
 		if not require(settings.get_setting("cartridge_msaa") == true and shown.text == "On" and views[0].msaa_3d == mode, "A sets MSAA on again in the cartridge viewport"): return
-	print("Device Settings cartridge MSAA: mode %d, row %s" % [mode, shown.text])
+	print("Cartridge edge smoothing: mode %d, row %s" % [mode, shown.text])
 
 	# Wi-Fi: scan, choose the long name, type a password on the keyboard, join.
 	if not await choose("Wi-Fi"): return

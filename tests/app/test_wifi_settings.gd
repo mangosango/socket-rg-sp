@@ -5,6 +5,7 @@ var run := OS.get_environment("SOCKET_RUN")
 var page
 var backs := 0
 var checks := 0
+var styled := []
 
 func _initialize() -> void:
 	_run.call_deferred()
@@ -77,12 +78,15 @@ func _run() -> void:
 
 	page = script.new()
 	page.back_requested.connect(func(): backs += 1)
+	# Device Settings gives this function. Only the power switch row uses it.
+	page.row_style = func(button: Button): styled.append(button.text)
 	root.add_child(page)
 	await process_frame
 	await process_frame
 	if not check(focused() == "Back" and rows()[0] == "Wi-Fi is not available.", "no worker"): return
 	await worker("idle")
 	if not check(focused() == "Wi-Fi: On", "page takes focus"): return
+	if not check(styled == ["Wi-Fi: On"], "only the power row gets the panel look: %s" % [styled]): return
 	# Scan, cancel, and ignore the late result.
 	await press("ui_down")
 	await press("ui_accept")

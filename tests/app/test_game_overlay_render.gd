@@ -1,6 +1,6 @@
 # Draw the in-game Device Settings with the packed project, the fbdev display
 # server and the window released, as during a game. Use tests/app/run_render.py
-# with SOCKET_3D_MSAA=2 to exercise the switch on Mesa.
+# with SOCKET_3D_MSAA=2 to check that the launcher keeps its MSAA setting.
 # The script saves each frame above a game picture in SOCKET_EVIDENCE.
 extends SceneTree
 
@@ -69,10 +69,6 @@ func _run() -> void:
 		await process_frame
 	if not require(root.get_meta("socket_shader_startup_complete", false), "startup completes"): return
 	await wait(1.0)
-	# SOCKET_TEST_DARK=1 selects Socket's dark mode, as on the test card.
-	if OS.get_environment("SOCKET_TEST_DARK") == "1":
-		root.get_node("SettingsManager").set_setting("dark_mode", true)
-		await wait(0.5)
 	var manager = root.get_node("Manager")
 	var platform = load("res://scripts/platform.gd").new()
 	platform.model = manager.db.get_platform("gba").new()
@@ -83,6 +79,7 @@ func _run() -> void:
 	home.selected_platform_index = home._get_visible_platforms().find(platform)
 	home.render_carousel()
 	var view: SubViewport = home.viewport_3d
+	var initial_msaa := view.msaa_3d
 	await wait(1.0)
 	if not require(view.get_texture().get_image().get_used_rect().has_area(), "fixture cartridges are visible before launch"): return
 	var bridge := root.get_node("FrontendBridge")
@@ -110,7 +107,8 @@ func _run() -> void:
 	# The focus outline and the filled part of a level bar must be clear on the
 	# surface, in the light mode and in the dark mode.
 	var panel := root.get_node("DeviceSettings")
-	if not require(Rect2(Vector2.ZERO, panel._logical).encloses(panel._card.get_global_rect()), "all seven game menu rows fit on the panel"): return
+	if not require(panel._rows.keys() == ["Brightness", "Volume", "Wi-Fi", "Bluetooth", "Game", "Cheats"], "the in-game menu shows only device and game controls"): return
+	if not require(Rect2(Vector2.ZERO, panel._logical).encloses(panel._card.get_global_rect()), "all six rows fit on the panel"): return
 	var data := FileAccess.get_file_as_bytes(run_dir.path_join("menu.frame"))
 	var shot := Image.create_from_data(720, 480, false, Image.FORMAT_RGBA8, data.slice(28))
 	var scale: float = 480.0 / panel._logical.y
@@ -145,23 +143,24 @@ func _run() -> void:
 	save("view-short.png")
 	await send("root 1\n")
 	if not require(panel._gui.gui_get_focus_owner().name == "Cheats" and panel._card.size == card, "root returns to the row"): return
+	# Give each worker a stable power state for the switch captures.
+	FileAccess.open(run_dir.path_join("bluetooth.status"), FileAccess.WRITE).store_string("off\n")
+	FileAccess.open(run_dir.path_join("wifi.status"), FileAccess.WRITE).store_string("id=0\nresult=ok\nstate=off\nsaved=\n")
 	await press("up") # Game
-	await press("up") # Cartridge MSAA when available, otherwise Bluetooth
-	var msaa_row: Button = panel._rows["Cartridge MSAA"]
-	if not msaa_row.disabled:
-		if not require(msaa_row.has_focus(), "the cartridge MSAA row has focus"): return
-		await press("a")
-		if not require(root.get_node("SettingsManager").get_setting("cartridge_msaa") == false, "the game menu saved MSAA Off"): return
-		await press("up")
+	await press("up") # Bluetooth
 	await press("a")
 	if not require(panel._sub != null and panel._title.text == "Bluetooth", "Bluetooth opens from the shared menu"): return
 	await wait(1.0)
+	var bluetooth_power: Button = panel._gui.gui_get_focus_owner()
+	if not require(bluetooth_power.text == "Bluetooth" and bluetooth_power.get_node("Side/Value").text == "Off" and bluetooth_power.alignment == HORIZONTAL_ALIGNMENT_LEFT and bluetooth_power.has_theme_stylebox_override("focus"), "the Bluetooth switch uses the panel row style"): return
 	save("bluetooth.png")
 	await press("b")
 	await wait(0.3)
 	await press("up")
 	await press("a")
 	await wait(1.0)
+	var wifi_power: Button = panel._gui.gui_get_focus_owner()
+	if not require(wifi_power.text == "Wi-Fi" and wifi_power.get_node("Side/Value").text == "Off" and wifi_power.alignment == HORIZONTAL_ALIGNMENT_LEFT and wifi_power.has_theme_stylebox_override("focus"), "the Wi-Fi switch uses the panel row style"): return
 	save("wifi.png")
 	var animated := number()
 	await wait(1.5)
@@ -183,7 +182,7 @@ func _run() -> void:
 	if not require(result == [0] and not paused, "the game exit restores the launcher"): return
 	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN)
 	for i in range(3): await RenderingServer.frame_post_draw
-	if not require(view.msaa_3d == Viewport.MSAA_DISABLED, "the resumed carousel uses the selected MSAA state"): return
+	if not require(view.msaa_3d == initial_msaa, "the resumed carousel keeps its MSAA setting"): return
 	if not require(view.get_texture().get_image().get_used_rect().has_area(), "the resumed cartridge viewport draws cartridges"): return
 	root.get_texture().get_image().save_png(evidence.path_join("launcher-after.png"))
 	print("PASS: game menu frames with the packed project")

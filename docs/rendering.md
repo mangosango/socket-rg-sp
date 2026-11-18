@@ -87,8 +87,8 @@ is not evidence that all shader specializations were compiled.
   the 2D UI stay the same.
 - Foil labels use the sampled gradient without the 2x color multiplier. This
   reduces clipped highlights. Gloss and diffraction stay enabled.
-- The RG SP defaults to 2x MSAA for cartridge edges. Use **Cartridge MSAA**
-  in Device Settings to turn it off or back on. The casing shaders use their
+- The RG SP defaults to 2x MSAA for cartridge edges. Use **Cartridge edge smoothing**
+  in the Socket launcher under Device Settings to turn it off or back on. The casing shaders use their
   original roughness.
 - The optional `edge` display shader uses alpha to locate steps between opaque
   and empty texels. It samples three distances along each side of a step to
@@ -246,7 +246,7 @@ to retry it during the same session.
 | Variable | Card setting | Other settings |
 | --- | --- | --- |
 | `SOCKET_3D_CAP` | `1` (up to 720x480) | `0.6667` caps the slider at 480x320. |
-| `SOCKET_3D_MSAA` | `auto` (2x on the RG SP) | `0` disables MSAA. `2` and `4` set the sample count when Cartridge MSAA is on. |
+| `SOCKET_3D_MSAA` | `auto` (2x on the RG SP) | `0` disables MSAA. `2` and `4` set the sample count when Cartridge edge smoothing is on. |
 | `SOCKET_3D_FILTER` | `linear` | `edge` selects silhouette reconstruction for a single-sample target. |
 | `SOCKET_3D_SHADOWS` | `orthogonal` | `4` selects four splits. `0` disables the map. |
 | `SOCKET_UI_LIGHT` | enabled | `0` restores the original glass and corner draws. |

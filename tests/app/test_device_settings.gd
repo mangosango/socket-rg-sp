@@ -223,6 +223,22 @@ func _run() -> void:
 	var page: Control = panel._sub
 	assert(page != null and not panel._list.visible and panel._title.text == "Wi-Fi")
 	assert(panel._gui.gui_get_focus_owner() == page.get_node("Network0"))
+	# The power switch row of the page has the look of the panel rows.
+	var switch: Button = page.get_node("Network0")
+	var outline: StyleBoxFlat = switch.get_theme_stylebox("focus")
+	var panel_outline: StyleBoxFlat = focus.get_theme_stylebox("focus")
+	assert(switch.alignment == HORIZONTAL_ALIGNMENT_LEFT and switch.get_theme_stylebox("normal") is StyleBoxEmpty)
+	assert(outline.corner_radius_top_left == panel_outline.corner_radius_top_left and outline.corner_radius_top_left > 0)
+	assert(outline.border_width_left == panel_outline.border_width_left and outline.border_color == panel_outline.border_color and not outline.draw_center)
+	assert(switch.get_theme_color("font_color") == focus.get_theme_color("font_color"))
+	# The radio name is at the left and the state at the right, as on a panel switch.
+	var state_label: Label = switch.get_node("Side/Value")
+	var panel_value: Label = focus.get_node("Side/Value")
+	assert(switch.text == "Wi-Fi" and state_label.text == "On" and switch.accessibility_name == "Wi-Fi: On")
+	assert(state_label.horizontal_alignment == HORIZONTAL_ALIGNMENT_RIGHT and switch.get_node("Side").offset_right == focus.get_node("Side").offset_right)
+	assert(state_label.get_theme_color("font_color") == panel_value.get_theme_color("font_color"))
+	assert(state_label.get_global_rect().end.x <= switch.get_global_rect().end.x and state_label.get_global_rect().position.x > switch.get_global_rect().get_center().x)
+	assert(not page.get_node("Network1").has_theme_stylebox_override("focus") and not page.get_node("Network1").has_node("Side"))
 	# A long list scrolls in the panel. The last row stays visible and usable.
 	var frame: PanelContainer = panel._gui.find_children("*", "PanelContainer", true, false)[0]
 	var frame_size := frame.size
@@ -337,23 +353,23 @@ func _run() -> void:
 	assert(not root.has_node("DeviceSettings"))
 	await menu()
 	assert(root.has_node("DeviceSettings"))
-	# No SettingsManager with the setting: the panel has no Cartridge MSAA row.
-	assert(not root.get_node("DeviceSettings")._rows.has("Cartridge MSAA"))
+	# No SettingsManager with the setting: the panel has no Cartridge edge smoothing row.
+	assert(not root.get_node("DeviceSettings")._rows.has("Cartridge edge smoothing"))
 	root.get_node("DeviceSettings").close()
 	await wait(0.1)
 	assert(not paused and root.gui_get_focus_owner() == launcher)
 
-	# Cartridge MSAA: the row shows the value of the manager. A changes and saves it.
+	# Cartridge edge smoothing: the row shows the value of the manager. A changes and saves it.
 	var settings := Settings.new()
 	settings.name = "SettingsManager"
 	root.add_child(settings)
 	await menu()
 	panel = root.get_node("DeviceSettings")
-	assert(panel._rows.keys() == ["Brightness", "Volume", "Wi-Fi", "Bluetooth", "Cartridge MSAA"])
+	assert(panel._rows.keys() == ["Brightness", "Volume", "Wi-Fi", "Bluetooth", "Cartridge edge smoothing"])
 	for index in 3:
 		await tap("ui_down")
 	focus = panel._gui.gui_get_focus_owner()
-	assert(focus.name == "Cartridge MSAA" and focus.get_node("Side/Value").text == "On" and settings.saves == 0)
+	assert(focus.name == "Cartridge edge smoothing" and focus.get_node("Side/Value").text == "On" and settings.saves == 0)
 	await button(JOY_BUTTON_A, true)
 	await button(JOY_BUTTON_A, false)
 	assert(settings.values["cartridge_msaa"] == false and settings.saves == 1 and focus.get_node("Side/Value").text == "Off")
@@ -362,7 +378,7 @@ func _run() -> void:
 	await menu()
 	await menu()
 	panel = root.get_node("DeviceSettings")
-	var state: Label = panel._rows["Cartridge MSAA"].get_node("Side/Value")
+	var state: Label = panel._rows["Cartridge edge smoothing"].get_node("Side/Value")
 	assert(state.text == "Off")
 	for index in 3:
 		await tap("ui_down")
@@ -384,7 +400,7 @@ func _run() -> void:
 	root.set_meta("socket_cartridge_msaa_paused", true)
 	await menu()
 	panel = root.get_node("DeviceSettings")
-	assert(panel._rows["Cartridge MSAA"].disabled and panel._rows["Cartridge MSAA"].get_node("Side/Value").text == "Off")
+	assert(panel._rows["Cartridge edge smoothing"].disabled and panel._rows["Cartridge edge smoothing"].get_node("Side/Value").text == "Off")
 	for index in 4:
 		await tap("ui_down")
 	assert(panel._gui.gui_get_focus_owner().name == "Wi-Fi")
@@ -396,12 +412,12 @@ func _run() -> void:
 	settings.mode = Viewport.MSAA_4X
 	await menu()
 	assert(not root.has_node("DeviceSettings") and not paused and root.gui_get_focus_owner() == launcher and presses[0] == 1)
-	# During a game, the row is before the game rows and all rows are on the display.
+	# The in-game menu shows the radio and game rows.
 	var game_panel = load("res://addons/FrontendPlugin/device_settings.gd").new()
 	game_panel.game = true
 	root.add_child(game_panel)
 	await wait(0.2)
-	assert(game_panel._rows.keys() == ["Brightness", "Volume", "Wi-Fi", "Bluetooth", "Cartridge MSAA", "Game", "Cheats"])
+	assert(game_panel._rows.keys() == ["Brightness", "Volume", "Wi-Fi", "Bluetooth", "Game", "Cheats"])
 	assert(game_panel._gui.gui_get_focus_owner().name == "Game")
 	var card: Rect2 = game_panel._card.get_global_rect()
 	print("Device Settings game card: %s of %s" % [card, game_panel._logical])

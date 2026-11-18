@@ -9,6 +9,7 @@ var run := OS.get_environment("SOCKET_RUN")
 var page
 var backs := 0
 var checks := 0
+var styled := []
 var session := 0
 var log_text := ""
 var objects := {}
@@ -113,6 +114,8 @@ func device(address: String) -> Dictionary:
 func _run() -> void:
 	page = load("res://addons/FrontendPlugin/bluetooth_settings.gd").new()
 	page.back_requested.connect(func(): backs += 1)
+	# Device Settings gives this function. Only the power switch row uses it.
+	page.row_style = func(button: Button): styled.append(button.text)
 	root.add_child(page)
 	await process_frame
 	await process_frame
@@ -137,6 +140,7 @@ func _run() -> void:
 	check(rows() == ["Bluetooth: Off", "Back"] and focused() == "Back", "radio off, the focus stays on its row")
 	await press("ui_up")
 	check(focused() == "Bluetooth: Off", "Up selects the power row")
+	check(styled == ["Bluetooth: Off"], "only the power row gets the panel look: %s" % [styled])
 	await press("ui_accept")
 	check(requests() == ["on"], "A turns the radio on")
 	await status("starting")

@@ -24,6 +24,9 @@ cc -shared -fPIC /repo/tests/app/test_resident_egl.c -o /tmp/resident.so -ldl -l
 printf 'pcm.!default { type null }\n' > /tmp/alsa.conf
 mkdir -p /tmp/data/godot/app_userdata/Socket /tmp/roms
 printf '[General]\nui_sounds_enabled=false\nhas_seen_warning=true\nhas_seen_control_style_prompt=true\ncontrol_layout_revision=1\nconfirm_joy_button=0\n' > /tmp/data/godot/app_userdata/Socket/settings.cfg
+if [ "${SOCKET_TEST_DARK:-0}" = 1 ]; then
+    printf 'dark_mode=true\n' >> /tmp/data/godot/app_userdata/Socket/settings.cfg
+fi
 touch /tmp/roms/One.gba /tmp/roms/Two.gba
 EGL_PLATFORM=surfaceless LD_PRELOAD=/tmp/resident.so ALSA_CONFIG_PATH=/tmp/alsa.conf XDG_DATA_HOME=/tmp/data \
 SOCKET_RUN=/tmp SOCKET_TEST_ROOT=/tmp/roms SOCKET_EVIDENCE=/output \
