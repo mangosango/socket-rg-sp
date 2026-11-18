@@ -251,12 +251,12 @@ func _button(text: String) -> Button:
 
 
 # Give a row the look of the panel: the text and the focus outline.
-func _style(row: Button) -> void:
-	row.alignment = HORIZONTAL_ALIGNMENT_LEFT
+func _style(row: Button, compact: bool = false) -> void:
+	row.alignment = HORIZONTAL_ALIGNMENT_CENTER if compact else HORIZONTAL_ALIGNMENT_LEFT
 	# The colors here are final. Socket must not change them a second time.
 	row.set_meta("socket_adaptive_surface", true)
 	var plain := StyleBoxEmpty.new()
-	plain.set_content_margin_all(28 * _unit)
+	plain.set_content_margin_all((8 if compact else 28) * _unit)
 	for style in ["normal", "hover", "pressed", "disabled"]:
 		row.add_theme_stylebox_override(style, plain)
 	# Like Socket's focus outline: a rounded border in the ink color.
@@ -286,15 +286,16 @@ func _value(text: String) -> Label:
 	return value
 
 
-# Give the power switch row of a radio page the look of a panel switch:
-# the radio name at the left and the state at the right.
-# The text of the row is "Name: State".
-func _style_switch(row: Button) -> void:
-	_style(row)
-	# Assistive tools continue to read the full text.
-	row.accessibility_name = row.text
-	_side(row).add_child(_value(row.text.get_slice(": ", 1)))
-	row.text = row.text.get_slice(": ", 0)
+func _style_radio_row(row: Button, is_switch: bool, compact: bool) -> void:
+	_style(row, compact)
+	if is_switch:
+		# Keep the full spoken name when the visible state moves to the right.
+		row.accessibility_name = row.text
+		_side(row).add_child(_value(row.text.get_slice(": ", 1)))
+		row.text = row.text.get_slice(": ", 0)
+	elif not compact:
+		# Wrap long network and accessory names within the scroll area.
+		row.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
 
 func _row(row_name: String) -> Button:
@@ -490,13 +491,6 @@ func show_view(selected: int, first: int, total: int, title: String, status: Str
 		_view_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_view_rows.add_theme_constant_override("separation", roundi(12 * _unit))
 		scroll.add_child(_view_rows)
-		# A status or a row with more lines changes the visible part of the
-		# list. Keep the selected row in it.
-		scroll.sort_children.connect(func():
-			var focus := _gui.gui_get_focus_owner()
-			if focus != null and focus.get_parent() == _view_rows:
-				# Deferred: a container ignores a scroll change during its sort.
-				scroll.ensure_control_visible.call_deferred(focus))
 		_view.add_child(scroll)
 		# The status stays below the rows. A long status uses more lines.
 		_view_status = _label("")
@@ -582,7 +576,7 @@ func _open_radio(row: Button) -> void:
 	_sub = load(RADIOS[row.name]).new()
 	_sub_row = row
 	if "row_style" in _sub:
-		_sub.row_style = _style_switch
+		_sub.row_style = _style_radio_row
 	_sub.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	if _sub.has_signal("back_requested"):
 		_sub.connect("back_requested", _close_radio)
@@ -600,7 +594,17 @@ func _scroller() -> ScrollContainer:
 	scroll.follow_focus = true
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	# A rebuilt list can restore focus before its new buttons have positions.
+	scroll.sort_children.connect(_reveal_focus.bind(scroll), CONNECT_DEFERRED)
 	return scroll
+
+
+func _reveal_focus(scroll: ScrollContainer) -> void:
+	if not is_instance_valid(scroll) or not scroll.is_inside_tree():
+		return
+	var focus := _gui.gui_get_focus_owner()
+	if focus != null and scroll.is_ancestor_of(focus):
+		scroll.ensure_control_visible(focus)
 
 
 func _focus_radio() -> void:

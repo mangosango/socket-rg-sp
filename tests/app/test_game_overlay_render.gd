@@ -153,6 +153,9 @@ func _run() -> void:
 	await wait(1.0)
 	var bluetooth_power: Button = panel._gui.gui_get_focus_owner()
 	if not require(bluetooth_power.text == "Bluetooth" and bluetooth_power.get_node("Side/Value").text == "Off" and bluetooth_power.alignment == HORIZONTAL_ALIGNMENT_LEFT and bluetooth_power.has_theme_stylebox_override("focus"), "the Bluetooth switch uses the panel row style"): return
+	await press("down")
+	var back: Button = panel._gui.gui_get_focus_owner()
+	if not require(back.text == "Back" and back.has_theme_stylebox_override("focus"), "Back has the menu focus outline in-game"): return
 	save("bluetooth.png")
 	await press("b")
 	await wait(0.3)

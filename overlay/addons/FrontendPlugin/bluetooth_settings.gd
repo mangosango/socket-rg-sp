@@ -30,8 +30,7 @@ var _tail := ""
 var _sequence := 0
 var _poll_at := 0
 var _signature := ""
-# Device Settings sets this function. It gives the power switch row the look
-# of the panel rows. A page that is alone keeps the theme look.
+# Device Settings supplies the style for list rows and pairing keys.
 var row_style := Callable()
 var _device_path := RegEx.create_from_string("^/org/bluez/hci[0-9]+/dev_((?:[0-9A-F]{2}_){5}[0-9A-F]{2})$")
 var _control := RegEx.create_from_string("[\\x00-\\x1f\\x7f]")
@@ -368,15 +367,13 @@ func _render() -> void:
 			var digits := HBoxContainer.new()
 			add_child(digits)
 			for digit in 10:
-				var key := _button(id + str(digit), str(digit), _digit.bind(digit))
+				var key := _button(id + str(digit), str(digit), _digit.bind(digit), true)
 				key.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 				digits.add_child(key)
 				buttons.append(key)
 		elif row.size() == 3:
 			var button := _button(id, row[1], row[2])
 			button.alignment = HORIZONTAL_ALIGNMENT_LEFT
-			if row[0] == "power" and row_style.is_valid():
-				row_style.call(button)
 			# Keep the D-pad inside this page.
 			button.focus_neighbor_left = NodePath(".")
 			button.focus_neighbor_right = NodePath(".")
@@ -397,11 +394,13 @@ func _render() -> void:
 		target.grab_focus()
 
 
-func _button(id: String, text: String, action: Callable) -> Button:
+func _button(id: String, text: String, action: Callable, compact: bool = false) -> Button:
 	var button := Button.new()
 	button.text = text
 	button.set_meta("row", id)
 	button.pressed.connect(action)
+	if row_style.is_valid():
+		row_style.call(button, id == "main:power", compact)
 	return button
 
 

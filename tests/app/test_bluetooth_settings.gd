@@ -9,7 +9,6 @@ var run := OS.get_environment("SOCKET_RUN")
 var page
 var backs := 0
 var checks := 0
-var styled := []
 var session := 0
 var log_text := ""
 var objects := {}
@@ -28,6 +27,13 @@ func check(ok: bool, message: String) -> bool:
 func rows() -> Array:
 	if page == null: return []
 	return page.find_children("*", "Control", true, false).filter(func(c): return "text" in c).map(func(c): return c.text)
+
+# The row_style arguments of the button with this text: [is_switch, compact].
+func style(text: String) -> Array:
+	for button in page.find_children("*", "Button", true, false):
+		if button.text == text:
+			return button.get_meta("style", [])
+	return []
 
 func focused() -> String:
 	var owner := root.gui_get_focus_owner()
@@ -114,8 +120,8 @@ func device(address: String) -> Dictionary:
 func _run() -> void:
 	page = load("res://addons/FrontendPlugin/bluetooth_settings.gd").new()
 	page.back_requested.connect(func(): backs += 1)
-	# Device Settings gives this function. Only the power switch row uses it.
-	page.row_style = func(button: Button): styled.append(button.text)
+	# Device Settings gives this function. Each button records its arguments.
+	page.row_style = func(button: Button, is_switch: bool, compact: bool): button.set_meta("style", [is_switch, compact])
 	root.add_child(page)
 	await process_frame
 	await process_frame
@@ -140,7 +146,8 @@ func _run() -> void:
 	check(rows() == ["Bluetooth: Off", "Back"] and focused() == "Back", "radio off, the focus stays on its row")
 	await press("ui_up")
 	check(focused() == "Bluetooth: Off", "Up selects the power row")
-	check(styled == ["Bluetooth: Off"], "only the power row gets the panel look: %s" % [styled])
+	check(style("Bluetooth: Off") == [true, false], "the power row is a switch")
+	check(style("Back") == [false, false], "an action row is a regular row")
 	await press("ui_accept")
 	check(requests() == ["on"], "A turns the radio on")
 	await status("starting")
@@ -159,6 +166,7 @@ func _run() -> void:
 	await state()
 	await status("on")
 	check(rows() == ["Bluetooth: On", "Pad (55:66): Paired", "Add accessory", "Back"], "paired list")
+	check(style("Pad (55:66): Paired") == [false, false], "a name with colons is a regular row")
 	await press("ui_up")
 	check(focused() == "Back", "Up on the first row goes to the last row")
 	await press("ui_down", 2)
@@ -239,6 +247,7 @@ func _run() -> void:
 	requests()
 	await event("prompt pin %s" % HEADSET)
 	check(rows()[0] == "Enter the code for Head \"set\" \\ one (EE:FF): –" and not rows().has("Submit"), "code entry")
+	check(style("1") == [false, true] and style("Delete") == [false, false], "only the digit keys are compact")
 	await choose("1")
 	await choose("2")
 	await choose("3")

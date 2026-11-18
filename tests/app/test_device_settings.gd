@@ -238,7 +238,36 @@ func _run() -> void:
 	assert(state_label.horizontal_alignment == HORIZONTAL_ALIGNMENT_RIGHT and switch.get_node("Side").offset_right == focus.get_node("Side").offset_right)
 	assert(state_label.get_theme_color("font_color") == panel_value.get_theme_color("font_color"))
 	assert(state_label.get_global_rect().end.x <= switch.get_global_rect().end.x and state_label.get_global_rect().position.x > switch.get_global_rect().get_center().x)
-	assert(not page.get_node("Network1").has_theme_stylebox_override("focus") and not page.get_node("Network1").has_node("Side"))
+	# A regular action row has the same look and the full width. It has no state area.
+	var regular: Button = page.get_node("Network1")
+	assert(regular.text == "Network1" and regular.alignment == HORIZONTAL_ALIGNMENT_LEFT and not regular.has_node("Side"))
+	assert(regular.get_theme_stylebox("normal") is StyleBoxEmpty and regular.get_theme_color("font_color") == focus.get_theme_color("font_color"))
+	assert(is_equal_approx(regular.size.x, switch.size.x) and is_equal_approx(regular.size.x, page.size.x))
+	# A colon in a name stays in the text. Only the switch row has a state.
+	var named: Button = page.get_node("Network3")
+	assert(named.text == "Forget Office: Guest" and not named.has_node("Side") and named.accessibility_name == "")
+	# A long label wraps. The row stays in the panel and becomes higher.
+	var long: Button = page.get_node("Network2")
+	var view: Rect2 = panel._scroll.get_global_rect()
+	assert(long.text.begins_with("Forget A long network name") and not long.has_node("Side"))
+	assert(long.get_global_rect().position.x >= view.position.x and long.get_global_rect().end.x <= view.end.x)
+	assert(is_equal_approx(long.size.x, regular.size.x) and long.size.y > regular.size.y)
+	assert(page.size.x <= view.size.x)
+	# Keyboard keys are compact and centered. They fit in one line of the panel.
+	var keys: Array = page.get_node("Keys").get_children()
+	for key: Button in keys:
+		assert(key.alignment == HORIZONTAL_ALIGNMENT_CENTER and not key.has_node("Side") and key.accessibility_name == "")
+		assert(key.get_theme_stylebox("normal").get_margin(SIDE_LEFT) < regular.get_theme_stylebox("normal").get_margin(SIDE_LEFT))
+		assert(key.get_global_rect().position.x >= view.position.x and key.get_global_rect().end.x <= view.end.x)
+		assert(key.size.x < regular.size.x / 5 and key.size.y < regular.size.y)
+	assert(keys.map(func(key): return key.text) == Array("qwertyuio:".split("")))
+	assert(is_equal_approx(keys[0].position.y, keys[-1].position.y))
+	# The focus outline is the same for the switch, a regular row, a long row and a key.
+	for other: Button in [regular, named, long, keys[0], keys[-1]]:
+		var same: StyleBoxFlat = other.get_theme_stylebox("focus")
+		assert(same.corner_radius_top_left == outline.corner_radius_top_left and same.border_width_left == outline.border_width_left)
+		assert(same.border_color == outline.border_color and not same.draw_center)
+		assert(other.get_theme_color("font_focus_color") == switch.get_theme_color("font_focus_color"))
 	# A long list scrolls in the panel. The last row stays visible and usable.
 	var frame: PanelContainer = panel._gui.find_children("*", "PanelContainer", true, false)[0]
 	var frame_size := frame.size

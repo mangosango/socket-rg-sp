@@ -47,7 +47,7 @@ func worker() -> void:
 		write("wifi.scan", "bssid / frequency / signal level / flags / ssid\n" +
 			"02:00:00:00:00:01\t2437\t-40\t[WPA2-PSK-CCMP][ESS]\tA long network name of 32 bytes!\n" +
 			"02:00:00:00:00:02\t2437\t-50\t[WPA2-PSK-CCMP][ESS]\tHome\n")
-	write("wifi.status", "id=%s\nresult=%s\nstate=disconnected\nsaved=\n" % [request[0], "pending" if request[1] == "join" else "ok"])
+	write("wifi.status", "id=%s\nresult=%s\nstate=idle\nsaved=\n" % [request[0], "pending" if request[1] == "join" else "ok"])
 
 # A physical pad button, as the fbdev display server sends it.
 func press(button: JoyButton) -> void:
@@ -132,8 +132,9 @@ func _run() -> void:
 	# The panel pauses the launcher. Let the launcher complete its transition first.
 	await wait(2.0)
 	if not require(root.size == Vector2i(720, 480), "the display has 720x480 pixels"): return
-	write("wifi.status", "id=0\nresult=ok\nstate=disconnected\nsaved=\n")
+	write("wifi.status", "id=0\nresult=ok\nstate=connected\nsaved=Office: Guest\n")
 	write("bluetooth.status", "on\n")
+	write("bluetooth.log", "# 1\nready\n")
 	var state := "method return time=1.0 sender=:1.0 -> destination=:1.1 serial=3 reply_serial=2\n   array [\n"
 	for device in [[HEADSET, "Headphones with a long name (32)", true], [HEADSET.replace("FF", "00"), "Pad", false]]:
 		state += "      dict entry(\n         object path \"%s\"\n         array [\n            dict entry(\n               string \"org.bluez.Device1\"\n               array [\n" % device[0]
@@ -186,6 +187,11 @@ func _run() -> void:
 	# Wi-Fi: scan, choose the long name, type a password on the keyboard, join.
 	if not await choose("Wi-Fi"): return
 	if not require(panel._sub != null and control("Choose a network") != null, "A opens the Wi-Fi page"): return
+	if not await choose("Forget Office: Guest"): return
+	if not await steer("Cancel"): return
+	await shot("wifi-forget")
+	if not await choose("Cancel"): return
+	if not await steer("Choose a network"): return
 	await shot("wifi")
 	if not await choose("Choose a network"): return
 	await shot("wifi-networks")
@@ -213,6 +219,14 @@ func _run() -> void:
 	if not await choose("Bluetooth"): return
 	await wait(0.5)
 	if not require(panel._sub != null and control("Add accessory") != null, "A opens the Bluetooth page"): return
+	if not await steer("Back"): return
+	write("bluetooth.state", state.replace("boolean false", "boolean true") + "   ]\n")
+	await wait(0.7)
+	var back := control("Back")
+	if not require(back.has_focus() and panel._scroll.get_global_rect().encloses(back.get_global_rect()), "Back stays focused and visible after an accessory update"): return
+	write("bluetooth.state", state + "   ]\n")
+	await wait(0.7)
+	if not await steer("Headphones with a long name (32) (EE:FF): Connected"): return
 	await shot("bluetooth")
 	if not await choose("Headphones with a long name (32) (EE:FF): Connected"): return
 	if not require(control("Disconnect") != null, "A opens the accessory"): return
@@ -220,6 +234,14 @@ func _run() -> void:
 	if not await choose("Disconnect"): return
 	var requests := Array(DirAccess.get_files_at(run_dir)).filter(func(n): return n.begins_with("bluetooth.request.")).map(func(n): return FileAccess.get_file_as_string(run_dir.path_join(n)).strip_edges())
 	if not require("open" in requests and "disconnect AA:BB:CC:DD:EE:FF" in requests, "the page sends the requests: %s" % [requests]): return
+	if not await choose("Back"): return
+	if not await choose("Pad (EE:00): Paired"): return
+	if not await choose("Connect"): return
+	write("bluetooth.log", "# 1\nready\nprompt pin AA:BB:CC:DD:EE:00\n")
+	await wait(0.6)
+	if not await choose("9"): return
+	if not require(control("Submit") != null and control("9").alignment == HORIZONTAL_ALIGNMENT_CENTER, "the keypad accepts the last digit"): return
+	await shot("bluetooth-pin")
 	for i in 4:
 		if panel._sub == null:
 			break

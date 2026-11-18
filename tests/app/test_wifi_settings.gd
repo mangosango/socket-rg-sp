@@ -5,7 +5,6 @@ var run := OS.get_environment("SOCKET_RUN")
 var page
 var backs := 0
 var checks := 0
-var styled := []
 
 func _initialize() -> void:
 	_run.call_deferred()
@@ -21,6 +20,13 @@ func check(ok: bool, message: String) -> bool:
 func rows() -> Array:
 	if page == null: return []
 	return page.find_children("*", "Control", true, false).map(func(c): return c.text if "text" in c else "")
+
+# The row_style arguments of the button with this text: [is_switch, compact].
+func style(text: String) -> Array:
+	for button in page.find_children("*", "Button", true, false):
+		if button.text == text:
+			return button.get_meta("style", [])
+	return []
 
 func focused() -> String:
 	var owner := root.gui_get_focus_owner()
@@ -78,15 +84,16 @@ func _run() -> void:
 
 	page = script.new()
 	page.back_requested.connect(func(): backs += 1)
-	# Device Settings gives this function. Only the power switch row uses it.
-	page.row_style = func(button: Button): styled.append(button.text)
+	# Device Settings gives this function. Each button records its arguments.
+	page.row_style = func(button: Button, is_switch: bool, compact: bool): button.set_meta("style", [is_switch, compact])
 	root.add_child(page)
 	await process_frame
 	await process_frame
 	if not check(focused() == "Back" and rows()[0] == "Wi-Fi is not available.", "no worker"): return
 	await worker("idle")
 	if not check(focused() == "Wi-Fi: On", "page takes focus"): return
-	if not check(styled == ["Wi-Fi: On"], "only the power row gets the panel look: %s" % [styled]): return
+	if not check(style("Wi-Fi: On") == [true, false], "the power row is a switch"): return
+	if not check(style("Choose a network") == [false, false], "an action row is a regular row"): return
 	# Scan, cancel, and ignore the late result.
 	await press("ui_down")
 	await press("ui_accept")
@@ -114,6 +121,7 @@ func _run() -> void:
 	if not check(page._view == "form" and focused() == "Password", "password form"): return
 	await press("ui_accept")
 	if not check(page._view == "keys" and focused() == "q", "fallback keyboard opens"): return
+	if not check(style("q") == [false, true] and style("Done") == [false, true], "keyboard keys are compact"): return
 	await type("pass")
 	page.go_back()
 	if not check(page._psk.text == "pas" and rows()[0] == "***|", "B deletes, preview is masked"): return
@@ -205,6 +213,9 @@ func _run() -> void:
 	if not check(request() == "off", "off request"): return
 	await worker("off", "ok", "Home")
 	if not check(rows() == ["Wi-Fi is off. Saved network: Home.", "Wi-Fi: Off"], "off keeps the network"): return
+	# A colon in a network name does not make a switch.
+	await worker("connected", "ok", "Office: Guest")
+	if not check(style("Forget Office: Guest") == [false, false], "a name with a colon is a regular row"): return
 	# Hiding the page stops a join.
 	await worker("idle")
 	page._open_form("Example", false)
