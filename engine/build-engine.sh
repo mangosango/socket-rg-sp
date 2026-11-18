@@ -26,3 +26,9 @@ docker run --rm --platform linux/arm64 -v "$SRC":/godot socket-baseos-godot \
 # Build the session controls helper with the same BaseOS ABI.
 docker run --rm --platform linux/arm64 -v "$HERE/fbdev":/src:ro -v "$WORK":/out socket-baseos-godot \
 	cc -std=c11 -O2 -Wall -Wextra -Werror /src/hardware.c -lm -o /out/socket-hardware
+
+# Use the same mbedTLS library as Godot to derive the WPA2 key.
+docker run --rm --platform linux/arm64 -v "$HERE":/src:ro -v "$WORK":/out socket-baseos-godot \
+	cc -std=c11 -Os -Wall -Wextra -Werror -I/out/godot/thirdparty/mbedtls/include \
+	/src/wifi-config.c /out/godot/bin/obj/modules/libmodule_mbedtls.linuxbsd.template_release.arm64.a \
+	-Wl,--gc-sections -s -o /out/socket-wifi-config

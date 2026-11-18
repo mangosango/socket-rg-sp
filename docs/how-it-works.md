@@ -58,6 +58,9 @@ System/
   socket/
     godot                     engine
     socket-hardware           input, sleep and power helper
+    wifi.sh                   wireless client and connection status
+    wifi-lease.sh             BaseOS DHCP lease hook wrapper
+    socket-wifi-config        creates a private supplicant configuration in RAM
     socket.pck                Socket, made from your APK
     launch_game.sh            starts a game; edit it to use another emulator
     play_game.sh              game log, process ID and session time
@@ -66,6 +69,7 @@ System/
     poweroff_ready.sh         checks that a requested shutdown can start
     cores/                    libretro cores
     retroarch/                RetroArch, its settings and shaders
+Config/                       optional Wi-Fi and achievement account files
 Saves/socket/                 Socket settings, library and RetroArch settings
 Logs/                         socket.log, socket-game.log, socket-hardware.log
 ```

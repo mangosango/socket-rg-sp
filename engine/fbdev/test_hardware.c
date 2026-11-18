@@ -169,6 +169,9 @@ static int device_clock(clockid_t id, struct timespec *t) {
 
 static int device_poll(struct pollfd *fds, nfds_t count, int timeout) {
 	assert(count == 1 && timeout == 100);
+	char marker[1024];
+	snprintf(marker, sizeof(marker), "%s/shallow.sleep", run_dir);
+	assert(access(marker, F_OK) == 0);
 	assert(number(backlight) == 0);
 	assert(stopped_app == app_pid || game_shutdown_pending || shutdown_at);
 	assert(mixer_values[0] == (fail_read || bad_info ? 40 : 0));
@@ -300,6 +303,8 @@ static void sleep_case(int mode, int fail_at, int read_error, int invalid) {
 	sleep_requested = mode == 0 || mode >= 11 ? LID_SLEEP : POWER_SLEEP;
 	lid_controls = (struct LidControls){ .closed = 2 };
 	suspend_device();
+	snprintf(path, sizeof(path), "%s/shallow.sleep", run_dir);
+	assert(access(path, F_OK) < 0);
 	int idle_off = mode == 6 || mode == 9 || mode == 10 || mode == 11 || mode == 14;
 	int committed = idle_off || mode == 16 || mode == 17;
 	// A started shutdown never relights the screen. Wake input does not cancel it.

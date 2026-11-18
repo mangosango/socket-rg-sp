@@ -2,3 +2,6 @@ work/
 dist/
 .DS_Store
 __pycache__/
+
+/card/Config/wifi.txt
+/card/Config/retroachievements.txt

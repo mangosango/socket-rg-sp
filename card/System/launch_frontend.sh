@@ -15,7 +15,13 @@ export SOCKET_SETTINGS="$SD/Saves/socket/controls.cfg"
 export SOCKET_FPS_DIAGNOSTICS=1
 # Socket's user:// data goes to Saves/socket/godot/app_userdata/Socket.
 export XDG_DATA_HOME="$SD/Saves/socket"
-mkdir -p "$SOCKET_RUN" "$LOGS" "$XDG_DATA_HOME"
+if ! mkdir -m 700 "$SOCKET_RUN" 2>/dev/null; then
+	[ -d "$SOCKET_RUN" ] && [ ! -L "$SOCKET_RUN" ] || exit 1
+	# BusyBox ash can check the directory owner before we reuse it.
+	# shellcheck disable=SC3067
+	[ -O "$SOCKET_RUN" ] && chmod 700 "$SOCKET_RUN" || exit 1
+fi
+mkdir -p "$LOGS" "$XDG_DATA_HOME"
 
 # One input owner serves Socket and RetroArch. Fail if another daemon has the pad.
 rm -f "$SOCKET_RUN/hardware.ready" "$SOCKET_RUN/app.pid" "$SOCKET_RUN/poweroff.request" \
@@ -24,6 +30,7 @@ rm -f "$SOCKET_RUN/hardware.ready" "$SOCKET_RUN/app.pid" "$SOCKET_RUN/poweroff.r
 /lib/ld-linux-aarch64.so.1 "$SYS/socket-hardware" > "$LOGS/socket-hardware.log" 2>&1 &
 hardware_pid=$!
 app_pid=
+wifi_pid=
 stop_device_app() {
 	device_pid=$(cat "$SOCKET_RUN/app.pid" 2>/dev/null)
 	case "$device_pid" in
@@ -35,6 +42,10 @@ stop_device_app() {
 	esac
 }
 cleanup() {
+	if [ "${wifi_started:-0}" = 1 ]; then
+		sh "$SYS/wifi.sh" stop
+		[ -z "$wifi_pid" ] || wait "$wifi_pid" 2>/dev/null
+	fi
 	stop_device_app
 	if [ -n "$app_pid" ]; then
 		kill -CONT "$app_pid" 2>/dev/null
@@ -55,12 +66,27 @@ while [ ! -f "$SOCKET_RUN/hardware.ready" ]; do
 	sleep 0.05
 done
 
+# The hardware lock now belongs to this session. Network waits run in parallel.
+rm -f "$SOCKET_RUN/shallow.sleep" "$SOCKET_RUN/wifi.stop" "$SOCKET_RUN/wifi.ready" "$SOCKET_RUN/wifi.clock-error"
+start_wifi() {
+	wifi_started=1
+	SOCKET_WIFI_PARENT=$$ sh "$SYS/wifi.sh" "$SD/Config/wifi.txt" >/dev/null 2>&1 &
+	wifi_pid=$!
+}
+start_wifi
+
 run_app() {
 	"$@" &
 	app_pid=$!
 	printf '%s\n' "$app_pid" > "$SOCKET_RUN/app.pid.new" && mv -f "$SOCKET_RUN/app.pid.new" "$SOCKET_RUN/app.pid"
 	while kill -0 "$app_pid" 2>/dev/null; do
 		kill -0 "$hardware_pid" 2>/dev/null || exit 1
+		if [ -n "$wifi_pid" ] && ! kill -0 "$wifi_pid" 2>/dev/null; then
+			wait "$wifi_pid"
+			wifi_status=$?
+			wifi_pid=
+			if [ "$wifi_status" -gt 128 ] && [ ! -e "$SOCKET_RUN/wifi.stop" ]; then start_wifi; fi
+		fi
 		sleep 0.1
 	done
 	wait "$app_pid"

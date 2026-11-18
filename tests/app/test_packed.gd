@@ -139,7 +139,7 @@ func _run() -> void:
 	manager.scrape_started.connect(func(_total): scan_started = true)
 	await joy(JOY_BUTTON_A)
 	await create_timer(0.5).timeout
-	if not require(not scan_started and manager._active_scraper == null, "real Scan never starts Linux network scraper"): return
+	if not require(not scan_started and manager._active_scraper == null, "offline Scan starts no network scraper"): return
 	if not require(platform.games.size() == 2, "offline scan keeps both discovered games"): return
 	if not require(platform.games.has(existing), "rescan preserves the existing Game object"): return
 	if not require(existing.playtime == 123 and existing.is_favorite and existing.custom_label_zoom == 1.5 and existing.added_at == 12345, "Mac game preferences and history survive rescan"): return

@@ -44,6 +44,7 @@ for dev in /sys/class/input/event*; do
 done
 
 # Apply the saved Slot screen settings only to the supported handheld cores.
+unset SOCKET_ACHIEVEMENTS_FILE SOCKET_WIFI_READY
 case "$1:${3:-}" in
 	mgba:gb|mgba:gbc|mgba:gba|gpsp:gba)
 		run="${SOCKET_RUN:-/tmp/socket}"
@@ -86,6 +87,14 @@ case "$1:${3:-}" in
 		printf 'core_options_path = "%s"\n' "$run/retroarch-core-options.cfg" >> "$run/retroarch.cfg" || exit 1
 		if [ "${SOCKET_RESUME_LOAD:-0}" = 1 ]; then
 			printf 'savestate_auto_load = "false"\n' >> "$run/retroarch.cfg" || exit 1
+		fi
+		account="$SYS/../../Config/retroachievements.txt"
+		if [ "$1" = mgba ] && [ -f "$account" ]; then
+			export SOCKET_ACHIEVEMENTS_FILE="$account"
+			export SOCKET_WIFI_READY="$run/wifi.ready"
+			printf '%s\n' 'cheevos_enable = "true"' 'cheevos_hardcore_mode_enable = "false"' >> "$run/retroarch.cfg" || exit 1
+		else
+			printf '%s\n' 'cheevos_enable = "false"' >> "$run/retroarch.cfg" || exit 1
 		fi
 		merge_options "$run/retroarch.cfg" || exit 1
 		if [ "$3" = gba ]; then shader=lcd3x; else shader=grid; fi

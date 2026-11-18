@@ -10,6 +10,7 @@ printf '[General]\nui_sounds_enabled=false\nhas_seen_warning=true\nhas_seen_cont
 touch "$WORK/roms/One.gba" "$WORK/roms/Two.gba" "$WORK/cores/mgba_libretro.so"
 status=0
 XDG_DATA_HOME="$WORK/data" SOCKET_RUN="$WORK" SOCKET_TEST_ROOT="$WORK/roms" SOCKET_CORES="$WORK/cores" "${GODOT:-godot}" --headless --main-pack "$1" --script "$HERE/${2:-test_packed.gd}" --quit-after 6000 --log-file "$WORK/godot.log" > "$WORK/output" 2>&1 || status=$?
+if grep -q "fixture-private-web-key" "$WORK/output"; then echo "FAIL: Web API key in output" >&2; exit 1; fi
 cat "$WORK/output"
 test "$status" -eq 0
 case "${2:-test_packed.gd}" in
@@ -28,3 +29,9 @@ if test -n "${SOCKET_AA_EVIDENCE:-}"; then
 	grep -q '^PASS: display AA' "$WORK/aa-output"
 	if grep -Eq 'SCRIPT ERROR:|FAIL:|ERROR:' "$WORK/aa-output"; then exit 1; fi
 fi
+
+case "${2:-test_packed.gd}" in
+	test_packed.gd|test_packed_032.gd)
+		SOCKET_AA_EVIDENCE= sh "$HERE/run_packed.sh" "$1" test_wifi.gd
+		;;
+esac

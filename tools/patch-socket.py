@@ -116,7 +116,7 @@ func _process(_delta: float) -> void:
 # (file, pattern, replacement, expected matches, flags[, version])
 EDITS = [
     # Scrape results: reload the texture and game info after the paths change.
-    # Skip 0.10.1's reset, which already reloads. The Linux scrape sets both itself.
+    # Skip the reset in 0.10.1. It already reloads the game.
     (MANAGER, r'^(\t+)(game\.support_texture_path = (?!""\s*$).*\n)', r"\1\2\1game.force_reload_texture()\n", 2, M),
     (MANAGER, r'^(\t+)(game\.game_info_path = (?!""\s*$).*\n)', r"\1\2\1game._game_info_loaded = false\n", 2, M),
     only(MODERN, prepend(MANAGER, "needs_emulator_database", """\
@@ -150,23 +150,6 @@ EDITS = [
 """),
     # Save the scan before the scrape so the library shows the games at once.
     (MANAGER, r"^(\tawait scrape_platform_in_user\()", r"\tsave_user()\n\tuser_updated.emit()\n\n\1", 1, M),
-    # BaseOS has no network scrape. Use artwork that the Mac setup tool cached.
-    prepend(MANAGER, "scrape_platform_in_user", """\
-    if OS.get_name() == "Linux":
-        var cache_dir = "user://scraped_data/" + platform.model.abbreviation.to_lower() + "/"
-        for game in platform.games:
-            var cache_path = cache_dir + game.rom_name.validate_filename()
-            if game.game_info_path.is_empty() and FileAccess.file_exists(cache_path + ".json"):
-                game.game_info_path = cache_path + ".json"
-                game._game_info_loaded = false
-            if game.support_texture_path.is_empty() and FileAccess.file_exists(cache_path + "_support.png"):
-                game.support_texture_path = cache_path + "_support.png"
-                game.force_reload_texture()
-        save_user()
-        user_updated.emit()
-        return
-
-"""),
     # Offer only emulator entries that have a RetroArch core on the card.
     (MANAGER, r'^(\t+)if (OS\.get_name\(\) != "Android" or installed_apps\.has\()',
      lambda m: f'{m[1]}if OS.get_name() == "Linux":\n'
@@ -365,6 +348,180 @@ vec3 gaussian_blur(""") + m[1] + gd("""){
               r"(.*?^\tif \(enable_diffraction\) \{\n)", move_diffraction_setup, 1, S)),
     only(LEGACY, (STICKER, r"\(noise_tex\.rgb \* 2\.0\)", "noise_tex.rgb", 1, M)),
 ]
+
+
+SCRAPER = "scripts/models/scrapers/scraper_games_db.gd"
+CUSTOMIZE = "scripts/screens/screen_customize.gd"
+ACHIEVEMENTS = "scripts/autoload/retro_achievements.gd"
+ROMM = "scripts/autoload/romm.gd"
+
+
+# Use the APK's parser, progress dialogs and cancellation for connected scans.
+# Version 0.10.1 also enters _run_scrape directly from Scan All.
+WIFI_EDITS = [
+    *[(path, r"^(extends [^\n]+(?:\n+class_name [^\n]+)?)$", r'\1\n\nconst BaseOSArt = preload("res://addons/FrontendPlugin/artwork.gd")', 1, M)
+      for path in (MANAGER, SCRAPER, CUSTOMIZE, ACHIEVEMENTS)],
+    *[only(versions, prepend(MANAGER, func, f"""\
+    if OS.get_name() == "Linux":
+        if _active_scraper != null:
+            return
+        var download := BaseOSArt.prepare({platforms})
+        save_user()
+        user_updated.emit()
+        if not download:
+            return
+""")) for versions, func, platforms in ((LEGACY, "scrape_platform_in_user", "[platform]"), (V101, "_run_scrape", "platforms"))],
+    # Defer fetch so an immediate request error can complete the await.
+    (MANAGER, r"^(\t+)scraper\.fetch\(\)$", r"\1scraper.fetch.call_deferred()", 1, M),
+    only(LEGACY, (MANAGER, r"^(\t\t)(if FileAccess.file_exists\(expected_json_path\).*)$", lambda m: m[1] + gd("""\
+if OS.get_name() == "Linux":
+    if BaseOSArt.exists(game.game_info_path) and BaseOSArt.has_image(game):
+        current_game += 1
+        scrape_progress.emit(current_game, total_games)
+        ScreenDialog.set_progress(current_game, total_games)
+        continue
+""").replace("\n", "\n" + m[1]) + "el" + m[2], 1, M)),
+    only(LEGACY, (MANAGER, r"^(\t\t)if not scraped_info.is_empty\(\):", r'''\1if OS.get_name() == "Linux":
+\1	if scraper.last_failure_offline:
+\1		break
+\1	BaseOSArt.store(game, base_save_dir + safe_filename, scraped_info, scraped_image, false)
+\1elif not scraped_info.is_empty():''', 1, M)),
+    only(LEGACY, (MANAGER, r"^(\t_active_scraper = null\n\tscraper.queue_free)", r"\tvar offline := scraper.last_failure_offline\n\1", 1, M)),
+    only(LEGACY, (MANAGER, r'^(\t)if _scrape_cancelled:(\n\t\tScreenDialog.display)', r'''\1if offline:
+\1	ScreenDialog.display("Scraping", "Artwork service unavailable. Try the scan again.", func(): pass, Callable())
+\1elif _scrape_cancelled:\2''', 1, M)),
+    only(V101, prepend(MANAGER, "_scan_platform_games", """\
+    if OS.get_name() == "Linux" and DirAccess.open(platform.rom_folder_path) == null:
+        return false
+""")),
+    only(V101, (MANAGER, r"^(func _scrape_game\(.*?)(\) -> ScrapeResult:)", r"\1, refresh: bool = false\2", 1, M)),
+    only(V101, (MANAGER, r"^(\t)if (FileAccess.file_exists\(json_path\) and FileAccess.file_exists\(image_path\)):", r'''\1if OS.get_name() == "Linux":
+\1	if not refresh and BaseOSArt.exists(game.game_info_path) and BaseOSArt.has_image(game):
+\1		return ScrapeResult.CACHED
+\1elif \2:''', 1, M)),
+    only(V101, (MANAGER, r"^(\tvar json_file: = FileAccess.open\(json_path, FileAccess.WRITE\))", lambda m: gd("""\
+    if OS.get_name() == "Linux":
+        if BaseOSArt.store(game, base_save_dir + safe_filename, scraped_info, scraped_image, refresh):
+            return ScrapeResult.MATCHED if BaseOSArt.has_image(game) else ScrapeResult.NO_ART
+        return ScrapeResult.NO_ART
+
+""") + m[1], 1, M)),
+    # Keep the current files and label settings until a replacement is ready.
+    only(V101, (MANAGER, r"^(\tvar base: = scraped_data_dir\(platform\).*?^\tgame.reload_scraped_data\(\)\n)", lambda m: gd("""\
+    if OS.get_name() == "Linux":
+        if _active_scraper != null:
+            return ScrapeResult.CANCELLED
+        if not BaseOSArt.online():
+            ScreenDialog.display("Scraping", _OFFLINE_MESSAGE, func(): pass, Callable())
+            return ScrapeResult.OFFLINE
+    else:
+""") + re.sub(r"(?m)^(?=.)", "\t", m[1]), 1, S)),
+    only(V101, (MANAGER, r"^(\tvar status: ScrapeResult = await _scrape_game\(scraper, platform, game)\)$", r'\1, OS.get_name() == "Linux")', 1, M)),
+    only(V101, prepend(MANAGER, "restore_original_art", """\
+    var refreshed := OS.get_name() == "Linux"
+    if refreshed:
+        var status := await rescrape_game(game)
+        if status != ScrapeResult.MATCHED:
+            return status
+""")),
+    only(V101, (MANAGER, r"^(\treturn await rescrape_game\(game\))", lambda m: gd("""\
+    if refreshed:
+        save_user()
+        return ScrapeResult.MATCHED
+""") + m[1], 1, M)),
+    only(V101, prepend(MANAGER, "update_emulator_database_silently", """\
+    if OS.get_name() == "Linux":
+        return
+""")),
+    only(V101, prepend(ROMM, "has_credentials", """\
+    if OS.get_name() == "Linux":
+        return false
+""")),
+    only(V101, prepend(ROMM, "_request", """\
+    if OS.get_name() == "Linux":
+        return {"ok": false, "code": 0, "body": PackedByteArray(), "data": null}
+""")),
+    only(V101, prepend(ROMM, "download_roms", """\
+    if OS.get_name() == "Linux":
+        return
+""")),
+
+    # Verify the upstream service and API revision before packaging its key.
+    *[only(versions, (SCRAPER, rf'^(@export var base_url: String = )("{re.escape(origin)}")$', r"\1\2\nconst BASEOS_ORIGIN = \2", 1, M))
+      for versions, origin in ((V101, "https://socket.depmots.com"), (LEGACY, "https://gamedb.depmots.com"))],
+    *[only(versions, (SCRAPER, rf'^(\tvar url = base_url\.rstrip\("/"\) \+ "/{api}/match\?.*)$', lambda m: gd("""\
+    if base_url != BASEOS_ORIGIN:
+        last_failure_offline = true
+        game_scraping_finished.emit({}, null)
+        return
+""") + m[1], 1, M)) for versions, api in ((V101, "v2"), (LEGACY, "v1"))],
+    only(LEGACY, (SCRAPER, r"^(var api_request: HTTPRequest)", r"var last_failure_offline := false\n\1", 1, M)),
+    only(LEGACY, prepend(SCRAPER, "fetch", "    last_failure_offline = false\n")),
+    only(LEGACY, (SCRAPER, r'^(\tif err != OK:|\tif result != HTTPRequest.RESULT_SUCCESS or response_code != 200:)$', r"\1\n\t\tlast_failure_offline = true", 2, M)),
+    only(V101, (SCRAPER, r"^(\tif response_code != 200:)$", r"\1\n\t\tlast_failure_offline = response_code == 429 or response_code >= 500", 1, M)),
+    (SCRAPER, r"^(\tvar game: Dictionary = json_data.get)", lambda m: gd("""\
+    if not json_data.get("game") is Dictionary or not json_data.get("labels", []) is Array:
+        game_scraping_finished.emit({}, null)
+        return
+""") + m[1], 1, M),
+    (SCRAPER, r"return labels\[0\]", "return labels[0] if labels[0] is Dictionary else {}", 1, M),
+    (SCRAPER, r"^(\t)(add_child\(api_request\))", r"\1BaseOSArt.limit_request(api_request, 1048576)\n\1\2", 1, M),
+    (SCRAPER, r"^(\t)(add_child\(image_request\))", r"\1BaseOSArt.limit_request(image_request, BaseOSArt.MAX_IMAGE_BYTES)\n\1\2", 1, M),
+    (SCRAPER, r"^(func _auth_headers\()\)(.*\n)", r'\1url: String = BASEOS_ORIGIN + "/")\2\tif not url.begins_with(BASEOS_ORIGIN + "/"):\n\t\treturn PackedStringArray()\n', 1, M),
+    (SCRAPER, r"image_request.request\(img_url, _auth_headers\(\)\)", 'image_request.request(img_url, _auth_headers(img_url)) if img_url.begins_with("https://") else ERR_INVALID_PARAMETER', 1, M),
+    (SCRAPER, r"^\t\tdownloaded_image = Image.new\(\).*?^\telse:", "\t\tdownloaded_image = BaseOSArt.decode_image(body)\n\telse:\n\t\tlast_failure_offline = true", 1, S),
+    (CUSTOMIZE, r"^(\t)(add_child\(label_image_request\))", r"\1BaseOSArt.limit_request(label_image_request, BaseOSArt.MAX_IMAGE_BYTES)\n\1\2", 1, M),
+    (CUSTOMIZE, r'^(\tvar headers: = )PackedStringArray\(\["X-API-Key: " \+ temp_scraper.api_key\]\)$', r"\1temp_scraper._auth_headers(img_url)", 1, M),
+    (CUSTOMIZE, r"^(\t_pending_label = label)$", lambda m: gd("""\
+    if not img_url.begins_with("https://") or not _pending_label.is_empty():
+        return
+    if OS.get_name() == "Linux" and not BaseOSArt.online():
+        return
+""") + m[1], 1, M),
+    (CUSTOMIZE, r"^\tvar img: = Image.new\(\)\n\tif img.load_webp_from_buffer\(body\).*?:\n", "\tvar img := BaseOSArt.decode_image(body)\n\tif img == null:\n", 1, M),
+    (CUSTOMIZE, r"^\tvar save_err = img.save_png\(game_instance.support_texture_path\).*?^\tgame_instance.apply_base_label\(label\)\n", lambda m: gd("""\
+    if OS.get_name() == "Linux":
+        var platform = Manager.current_user.get_platform(game_instance.platform_id)
+        if platform == null:
+            return
+        var details: Dictionary = game_instance._game_info.duplicate()
+        details["region"] = label.get("region", "")
+        details["texture_url"] = label.get("image_url", "")
+        if not BaseOSArt.store(game_instance, BaseOSArt.base_path(platform, game_instance), details, img, true):
+            return
+    else:
+""") + re.sub(r"(?m)^(?=.)", "\t", m[0]), 1, S),
+
+    (CUSTOMIZE, r"^(\tif not main_menu.carousel_3d.refresh_cartridge_model\(game_instance\)):", r"\1 and is_instance_valid(current_node):", 1, M),
+
+    # Use the bridge for full paths, including ROMs in subfolders.
+    (ACHIEVEMENTS, r'^(\tif OS.get_name\(\) == "Android" or console_id == 5):', r'\1 or (OS.get_name() == "Linux" and console_id in [4, 6]):', 1, M),
+    (ACHIEVEMENTS, r"^(\t+if data is Dictionary):(?=\n\s*_game_list_cache)", r"\1 and not data.is_empty():", 1, M),
+    (ACHIEVEMENTS, r"^(\t+)(for entry in data:)$", r"\1\2\n\1\tif not entry is Dictionary:\n\1\t\tcontinue", 1, M),
+    (ACHIEVEMENTS, r"^(\t+)(var a: Dictionary = raw_achievements\[key\])$", r"\1if not raw_achievements[key] is Dictionary:\n\1\tcontinue\n\1\2", 1, M),
+    (ACHIEVEMENTS, r"^(\t\t\tif not DirAccess.dir_exists_absolute\(GAME_LIST_CACHE_DIR\))", lambda m: gd("""\
+            if hash_map.is_empty():
+                on_complete.call({})
+                return
+""") + m[1], 1, M),
+    (ACHIEVEMENTS, r"^\t\t_game_list_cache\[console_id\] = hash_map$", "\t\tif not hash_map.is_empty():\n\t\t\t_game_list_cache[console_id] = hash_map", 1, M),
+    (ACHIEVEMENTS, r"^(\t\tvar game_id: int = hash_map.get)", lambda m: gd("""\
+        if hash_map.is_empty():
+            on_complete.call(NO_CREDENTIALS_OR_IO_ERROR, rom_hash)
+            return
+""") + m[1], 1, M),
+    *[(ACHIEVEMENTS, rf'^(\tvar url: = "%s{prefix})', lambda m, failure=failure: gd(f"""\
+    if OS.get_name() == "Linux" and not BaseOSArt.online():
+        {failure}
+        return
+""") + m[1], 1, M) for prefix, failure in (
+        ("API_GetGameList", "on_complete.call({})"), ("API_GetGameInfoAndUserProgress", "on_complete.call([])"),
+        ("%s%s\\.png", "on_loaded.call(null)"))],
+    (ACHIEVEMENTS, r"^(\tvar request: = HTTPRequest.new\(\))$", r"\1\n\tBaseOSArt.limit_request(request, BaseOSArt.MAX_IMAGE_BYTES)", 3, M),
+    (ACHIEVEMENTS, r"^(\tif badge_name.is_empty\(\)):", r"\1 or not badge_name.is_valid_filename():", 1, M),
+    (ACHIEVEMENTS, r"^\t\tvar img: = Image.new\(\)\n\t\tif img.load_png_from_buffer\(body\) != OK:", "\t\tvar img := BaseOSArt.decode_image(body)\n\t\tif img == null:", 1, M),
+]
+EDITS.extend(WIFI_EDITS)
 
 
 def socket_version(project_binary):

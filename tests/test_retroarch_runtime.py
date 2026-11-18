@@ -46,6 +46,7 @@ class RetroArchLauncherTests(unittest.TestCase):
             loader.chmod(0o755)
             script = root / "launch_game.sh"
             script.write_text(LAUNCHER.read_text()
+                              .replace("$SYS/../../Config/", str(sdcard / "Config") + "/")
                               .replace("/mnt/sdcard", str(sdcard))
                               .replace("/sys/class/input", str(sys))
                               .replace("/run/udev/data", str(udev))
@@ -97,6 +98,20 @@ class RetroArchLauncherTests(unittest.TestCase):
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn('savestate_auto_load = "false"', (runtime / "retroarch.cfg").read_text())
+            self.assertIn('cheevos_enable = "false"', (runtime / "retroarch.cfg").read_text())
+            (sdcard / "Config").mkdir()
+            (sdcard / "Config/retroachievements.txt").write_text("username = test\npassword = dummy-secret\n")
+            for resume in ("0", "1"):
+                result = subprocess.run(command, env=dict(os.environ, SOCKET_RESUME_LOAD=resume),
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                options = (runtime / "retroarch.cfg").read_text()
+                self.assertIn('cheevos_enable = "true"', options)
+                self.assertIn('cheevos_hardcore_mode_enable = "false"', options)
+                self.assertNotIn("dummy-secret", options + args.read_text() + result.stderr)
+            (sdcard / "Config/retroachievements.txt").unlink()
+            subprocess.run(command, check=True, capture_output=True)
+            self.assertIn('cheevos_enable = "false"', (runtime / "retroarch.cfg").read_text())
             args.unlink()
             (sdcard / "Screenshots").rmdir()
             (sdcard / "Screenshots").write_text("blocked path")

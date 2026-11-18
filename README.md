@@ -58,16 +58,41 @@ The first build compiles Godot and RetroArch. Expect it to take a while.
    library](#prepare-the-library-macos-only).
 8. Eject the card. Put it in slot TF1 and turn on the RG SP.
 
-BaseOS has no Wi-Fi support. Prepare the emulator lists and game library
-on your computer before you use Socket. Download metadata and artwork on
-your computer if you want them. Socket does not download this data on the
-RG SP.
+Prepare the emulator lists on your computer before the first boot. Socket can
+download artwork on a Wi-Fi-capable RG SP. You can also prepare the artwork on
+your computer and use the device offline.
 
 After this setup, you can scan new ROMs for the prepared platforms on the
 RG SP with Socket's platform editor. Pick a ROM folder and a RetroArch
 emulator, then select **Scan**.
 Socket shows only emulators that have a core in `System/socket/cores/`.
-An on-device scan uses cached media. It does not download missing media.
+An on-device scan loads cached media and downloads missing artwork when Wi-Fi is connected.
+
+## Connect to Wi-Fi and enable RetroAchievements
+
+1. On the frontend card, copy `Config/wifi.txt.example` to `Config/wifi.txt`.
+   Enter your WPA2-Personal network name in `ssid` and its password in `psk`.
+   Use the values as plain text. The network must supply an address through DHCP.
+2. Boot Socket and wait for the Wi-Fi indicator. Open the platform editor,
+   select a ROM folder, and choose **Scan**. Test with a game that has no cover.
+   A downloaded cover stays on the card for offline use.
+3. For in-game achievements, copy `Config/retroachievements.txt.example` to
+   `Config/retroachievements.txt`. Fill in your RetroAchievements `username`
+   and `password`. Launch a supported GB, GBC or GBA game with **mGBA** while
+   connected. The first successful sign-in replaces the password with a login
+   token. If the token expires, replace the file with a fresh copy of the
+   example and enter your credentials again.
+4. For progress and badges in Socket's achievement panel, enter your username
+   and RetroAchievements **Web API key** in the panel. The gameplay login token
+   and the Web API key have different purposes.
+
+Achievements use softcore mode so rewind, save states and resume work. An
+offline launch still starts the game. Relaunch it after Wi-Fi connects to
+start an achievement session. Reconnect before quitting if the connection
+drops during a session. Remove `Config/retroachievements.txt` to disable
+gameplay achievements. Remove `Config/wifi.txt` and restart to disable
+automatic connection. Treat the card and its backups as private because they
+can contain Wi-Fi and account credentials.
 
 ## Prepare the library (macOS only)
 
@@ -75,8 +100,8 @@ An on-device scan uses cached media. It does not download missing media.
 folders. It scans unpacked `.gb`, `.gbc` and `.gba` files. If the card has
 Slot's mGBA or gpSP core in `System/`, the tool copies it to
 `System/socket/cores/`.
-This preparation is a required installation step. Repeat it on your
-computer when you add games and want their metadata and artwork.
+Run this preparation before the first boot. When you add more games, scan
+on the RG SP over Wi-Fi or run the tool again on your computer.
 
 Missing metadata or artwork does not hide games from the homescreen.
 Socket uses the ROM file name without its extension when metadata is missing and

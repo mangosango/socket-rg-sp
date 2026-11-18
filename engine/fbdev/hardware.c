@@ -597,6 +597,14 @@ static void suspend_device(void) {
 	if (shallow) {
 		// shortcut: SP lid wake uses idle sleep, use suspend only after kernel wake support is verified.
 		if (!set_backlight(0)) {
+			char marker[1024];
+			snprintf(marker, sizeof(marker), "%s/shallow.sleep", run_dir);
+			int fd = open(marker, O_CREAT | O_WRONLY | O_CLOEXEC, 0600);
+			if (fd >= 0) close(fd);
+			else perror("socket-hardware: sleep marker");
+			char ready[1024];
+			snprintf(ready, sizeof(ready), "%s/wifi.ready", run_dir);
+			unlink(ready);
 			uint64_t sleep_at = millis(), boot_at = boot_millis();
 			fprintf(stderr, "socket-hardware: t=%" PRIu64 "ms boot=%" PRIu64 "ms shallow sleep (%s, app=%d, lid=%d), poweroff request after %ds\n",
 				sleep_at, boot_at, sleep_requested == LID_SLEEP ? "lid closed" : "power button", stopped_app, hall_closed,
@@ -604,6 +612,7 @@ static void suspend_device(void) {
 			sync();
 			slept = 1;
 			wake = wait_for_wake(sleep_at, boot_at);
+			unlink(marker);
 		}
 		// A started shutdown never lights the screen again.
 		if (level >= 0 && !shutdown_at) set_backlight(level);

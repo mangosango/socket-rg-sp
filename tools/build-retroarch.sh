@@ -12,7 +12,7 @@ mkdir -p "$WORK"
 # Detect applied patches in reverse order on an isolated source copy.
 PATCH_STATE="$(mktemp -d)"
 trap 'rm -rf "$PATCH_STATE"' EXIT HUP INT TERM
-PATCHES="retroarch-mali-rgb.patch retroarch-menu-hold.patch retroarch-menu-input.patch retroarch-controls.patch retroarch-quick-menu.patch retroarch-sleep.patch"
+PATCHES="retroarch-mali-rgb.patch retroarch-menu-hold.patch retroarch-menu-input.patch retroarch-controls.patch retroarch-quick-menu.patch retroarch-sleep.patch retroarch-achievements.patch"
 reverse_patches=""
 for patch_file in $PATCHES; do
 	sed -n 's|^--- a/||p' "$HERE/$patch_file"
@@ -39,12 +39,18 @@ cp "$HERE/retroarch-controls.h" "$SRC/socket_controls.h"
 cp "$HERE/retroarch-control-icons.h" "$SRC/socket_control_icons.h"
 cp "$HERE/retroarch-quick-menu.h" "$SRC/socket_quick_menu.h"
 
+cp "$HERE/retroarch-achievements.h" "$SRC/socket_achievements.h"
+
 docker build --platform linux/arm64 -t socket-baseos-godot "$HERE/../engine"
-docker run --rm --platform linux/arm64 -v "$SRC":/src -w /src socket-baseos-godot sh -euc '
+docker run --rm --platform linux/arm64 -v "$SRC":/src -v "$HERE":/tools:ro -w /src socket-baseos-godot sh -euc '
+	python3 /tools/retroarch-ca.py
 	./configure --disable-x11 --disable-wayland --disable-kms --disable-sdl2 --disable-pulse \
 		--disable-qt --disable-vulkan --disable-ffmpeg --disable-discord --disable-opengl \
 		--enable-opengles --enable-opengles3 --enable-egl --enable-mali_fbdev \
 		--enable-alsa --enable-udev
+	for feature in HAVE_NETWORKING HAVE_SSL HAVE_BUILTINMBEDTLS HAVE_CHEEVOS; do
+		grep -qx "#define $feature 1" config.h || exit 1
+	done
 	make -j"$(nproc)"
 	strip retroarch
 '

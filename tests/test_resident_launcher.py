@@ -78,7 +78,7 @@ class ResidentLauncherTests(unittest.TestCase):
                 log = root / "log"
                 started = time.monotonic()
                 result = subprocess.run(["sh", str(ROOT / "card/System/socket/poweroff.sh")],
-                                        env=dict(os.environ, PATH=str(bins) + ":" + os.environ["PATH"], LOG=str(log)),
+                                        env=dict(os.environ, PATH=str(bins) + ":" + os.environ["PATH"], LOG=str(log), SOCKET_RUN=str(root / "run")),
                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
                 self.assertEqual(result.returncode, 0)
                 self.assertEqual(log.read_text().split("\n")[:4], ["sync", "rmmod 8821cs", "sync", "poweroff"])
@@ -90,6 +90,7 @@ class ResidentLauncherTests(unittest.TestCase):
                 root = Path(directory)
                 system = root / "System/socket"
                 system.mkdir(parents=True)
+                (system / "wifi.sh").write_text((ROOT / "card/System/socket/wifi.sh").read_text())
                 (system / "poweroff_ready.sh").write_text((ROOT / "card/System/socket/poweroff_ready.sh").read_text())
                 (system / "poweroff.sh").write_text((ROOT / "card/System/socket/poweroff.sh").read_text())
                 run = root / "run"
@@ -115,6 +116,7 @@ class ResidentLauncherTests(unittest.TestCase):
                 self.assertEqual((run / "powered-off").exists(), request and status == 0)
                 self.assertFalse((run / "app.pid").exists())
                 self.assertFalse((run / "hardware.ready").exists())
+                self.assertTrue((run / "wifi.stop").exists())
                 self.assertIn("--render-thread\nsafe\n", (run / "args").read_text())
                 if orphan:
                     deadline = time.monotonic() + 2

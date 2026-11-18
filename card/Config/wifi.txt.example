@@ -1,0 +1,5 @@
+# Copy this file to Config/wifi.txt. The card stores the password in plain text.
+# Enter one WPA2-Personal network. Use the name and password without added quotes.
+# Spaces inside values, quotes, # and = are literal. A line can start with #.
+ssid = Example home network
+psk = replace with your Wi-Fi password

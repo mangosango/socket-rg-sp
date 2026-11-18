@@ -15,6 +15,7 @@ var _cores_dir: String = OS.get_environment("SOCKET_CORES") if OS.has_environmen
 var _libretro_regex: = RegEx.create_from_string("-e LIBRETRO\\s+(\\S+)")
 var _poweroff_poll: float = 0.0
 var _playing: bool = false
+var _clock_error_shown: bool = false
 
 
 func _enter_tree() -> void:
@@ -69,6 +70,15 @@ func _process(delta: float) -> void:
 	if _poweroff_poll < 0.2 or _playing:
 		return
 	_poweroff_poll = 0.0
+	if not _clock_error_shown and FileAccess.file_exists(_run_dir.path_join("wifi.clock-error")):
+		_clock_error_shown = true
+		var label := Label.new()
+		label.text = "Clock sync failed. Check the device date and time."
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		label.add_theme_constant_override("outline_size", 5)
+		get_node("ControlsHUD").add_child(label)
+		label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+		get_tree().create_timer(6.0).timeout.connect(label.queue_free)
 	if _poweroff_ready():
 		_quit_for_poweroff()
 
@@ -246,8 +256,9 @@ func get_battery_status() -> Dictionary:
 
 
 func get_network_status() -> Dictionary:
-	var up: = _read_sys("/sys/class/net/wlan0/operstate") == "up"
-	return {"type": "wifi" if up else "none", "internet": up}
+	var ready := FileAccess.file_exists(_run_dir.path_join("wifi.ready"))
+	# Each service checks reachability with its own request.
+	return {"type": "wifi" if ready else "none", "internet": false}
 
 
 func get_files_in_dir(uri_string: String, recursive: bool = false) -> Array:

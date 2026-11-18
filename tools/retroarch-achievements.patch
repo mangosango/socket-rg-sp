@@ -1,0 +1,118 @@
+--- a/cheevos/cheevos.c
++++ b/cheevos/cheevos.c
+@@ -68,6 +68,9 @@
+ #include "../paths.h"
+ #include "../command.h"
+ #include "../configuration.h"
++#include "../socket_achievements.h"
++
++static struct socket_account socket_login;
+ #include "../performance_counters.h"
+ #include "../msg_hash.h"
+ #include "../retroarch.h"
+@@ -1379,6 +1382,11 @@
+       settings_t* settings = config_get_ptr();
+       if (user->token[0])
+       {
++         const char *account = getenv("SOCKET_ACHIEVEMENTS_FILE");
++         if (account && !socket_account_store(account, &socket_login, user->token))
++            runloop_msg_queue_push("Could not save the RetroAchievements token.",
++                  sizeof("Could not save the RetroAchievements token.") - 1, 1, 240, false, NULL,
++                  MESSAGE_QUEUE_ICON_DEFAULT, MESSAGE_QUEUE_CATEGORY_WARNING);
+          /* store the token, clear the password */
+          strlcpy(settings->arrays.cheevos_token, user->token,
+             sizeof(settings->arrays.cheevos_token));
+@@ -1562,6 +1570,26 @@
+       return false;
+    }
+
++   if (getenv("SOCKET_ACHIEVEMENTS_FILE"))
++   {
++      const char *ready = getenv("SOCKET_WIFI_READY");
++      const char *message = NULL;
++      if (!ready || access(ready, F_OK) != 0)
++         message = "Offline. Achievements unavailable for this game.";
++      else if (!socket_account_read(getenv("SOCKET_ACHIEVEMENTS_FILE"), &socket_login))
++         message = "Check Config/retroachievements.txt and launch the game again.";
++      if (message)
++      {
++         runloop_msg_queue_push(message, strlen(message), 1, 240, false, NULL,
++               MESSAGE_QUEUE_ICON_DEFAULT, MESSAGE_QUEUE_CATEGORY_WARNING);
++         rcheevos_pause_hardcore();
++         return false;
++      }
++      strlcpy(settings->arrays.cheevos_username, socket_login.username, sizeof(settings->arrays.cheevos_username));
++      strlcpy(settings->arrays.cheevos_password, socket_login.password, sizeof(settings->arrays.cheevos_password));
++      strlcpy(settings->arrays.cheevos_token, socket_login.token, sizeof(settings->arrays.cheevos_token));
++      settings->arrays.cheevos_custom_host[0] = '\0';
++   }
+    if (string_is_empty(settings->arrays.cheevos_username))
+    {
+       CHEEVOS_LOG(RCHEEVOS_TAG "Cannot login (no username)\n");
+--- a/libretro-common/net/net_socket_ssl_mbed.c
++++ b/libretro-common/net/net_socket_ssl_mbed.c
+@@ -56,7 +56,7 @@
+ #endif
+
+ /* Not part of the mbedtls upstream source */
+-#include "cacert.h"
++#include "../../socket_ca_bundle.h"
+
+ #define DEBUG_LEVEL 0
+
+@@ -137,7 +137,7 @@
+ int ssl_socket_connect(void *state_data,
+       void *data, bool timeout_enable, bool nonblock)
+ {
+-   int ret, flags;
++   int ret;
+    struct ssl_state *state = (struct ssl_state*)state_data;
+
+    if (timeout_enable)
+@@ -160,7 +160,7 @@
+                MBEDTLS_SSL_PRESET_DEFAULT) != 0)
+       return -1;
+
+-   mbedtls_ssl_conf_authmode(&state->conf, MBEDTLS_SSL_VERIFY_OPTIONAL);
++   mbedtls_ssl_conf_authmode(&state->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
+    mbedtls_ssl_conf_ca_chain(&state->conf, &state->ca, NULL);
+    mbedtls_ssl_conf_rng(&state->conf, mbedtls_ctr_drbg_random, &state->ctr_drbg);
+    mbedtls_ssl_conf_dbg(&state->conf, ssl_debug, stderr);
+@@ -181,11 +181,8 @@
+          return -1;
+    }
+
+-   if ((flags = mbedtls_ssl_get_verify_result(&state->ctx)) != 0)
+-   {
+-      char vrfy_buf[512];
+-      mbedtls_x509_crt_verify_info(vrfy_buf, sizeof(vrfy_buf), "  ! ", flags);
+-   }
++   if (mbedtls_ssl_get_verify_result(&state->ctx) != 0)
++      return -1;
+
+    return state->net_ctx.fd;
+ }
+--- a/libretro-common/net/net_http.c
++++ b/libretro-common/net/net_http.c
+@@ -1361,10 +1361,21 @@
+    {
+       /* this block is a little wasteful, memory-wise */
+       struct http_connection_t *new_url = net_http_connection_new(location, NULL, NULL);
++      if (!new_url)
++         return true;
+       net_http_connection_iterate(new_url);
+       if (!net_http_connection_done(new_url))
+       {
+          net_http_connection_free(new_url);
++         return true;
++      }
++      /* Never forward a secure request body to a different origin. */
++      if (state->ssl && (!new_url->ssl ||
++          (state->request.contentlength && (new_url->port != state->request.port ||
++           strcmp(new_url->domain, state->request.domain)))))
++      {
++         net_http_connection_free(new_url);
++         state->err = true;
+          return true;
+       }
+       state->ssl = new_url->ssl;

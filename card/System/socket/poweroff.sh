@@ -4,6 +4,7 @@
 # The unload wait is 5 seconds at most.
 RMMOD="${SOCKET_RMMOD:-rmmod}"
 POWEROFF="${SOCKET_POWEROFF:-poweroff}"
+sh "$(dirname "$0")/wifi.sh" stop
 sync
 $RMMOD 8821cs 2>/dev/null &
 waited=0

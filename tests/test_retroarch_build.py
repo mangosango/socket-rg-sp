@@ -19,7 +19,7 @@ class RetroArchBuildTests(unittest.TestCase):
             tools.mkdir()
             for patch in (ROOT / "tools").glob("retroarch-*.patch"):
                 shutil.copy(patch, tools)
-            for name in ("retroarch-controls.h", "retroarch-control-icons.h", "retroarch-quick-menu.h"):
+            for name in ("retroarch-controls.h", "retroarch-control-icons.h", "retroarch-quick-menu.h", "retroarch-achievements.h"):
                 shutil.copy(ROOT / "tools" / name, tools)
             # Keep references to original lines while applying each patch in order.
             # Later patch context can fill lines that earlier patches did not use.
@@ -60,6 +60,8 @@ class RetroArchBuildTests(unittest.TestCase):
                     elif line.startswith("@@"):
                         hunk = []
                         hunks.append((int(re.match(r"@@ -(\d+)", line)[1]) - 1, hunk))
+                    elif hunk is not None and line == "\n":
+                        hunk.append(" \n")
                     elif hunk is not None and line.startswith((" ", "+", "-")) and not line.startswith("+++ "):
                         hunk.append(line)
                 apply_hunks()

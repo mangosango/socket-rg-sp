@@ -1,0 +1,4 @@
+# Copy this file to retroachievements.txt to enable softcore achievements with mGBA.
+# The first successful login replaces the password with a login token.
+username =
+password =

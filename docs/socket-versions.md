@@ -26,6 +26,11 @@ for 0.10.1, 17/168 for 0.8.0, and 14/138 for 0.3.2. These are API checks, not
 GPU draws or proof of persistent-cache reuse. The known 0.3.2 missing desktop
 BPTC texture messages remain tolerated by the existing test runner.
 
+The Wi-Fi build passed the packed offline and simulated online artwork and
+achievement checks on all three versions. The 0.10.1 pack was built from the
+APK. The 0.8.0 and 0.3.2 checks used local pack snapshots. Radio association,
+live downloads and account unlocks still need an RG SP test.
+
 ## 0.10.1
 
 The packed-app integration tests cover controller dialogs as well as the
