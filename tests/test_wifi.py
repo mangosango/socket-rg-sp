@@ -94,9 +94,18 @@ if [ "$2" = /var/run/wpa_supplicant ]; then
 else
     [ -f "$SOCKET_RUN/supp.started" ] || exit 1
 fi
+case "$5" in
+    scan) echo OK; exit 0 ;;
+    scan_results)
+        echo 'bssid / frequency / signal level / flags / ssid'
+        [ ! -f "$SOCKET_RUN/aps" ] || cat "$SOCKET_RUN/aps"
+        exit 0 ;;
+    list_networks) [ ! -f "$SOCKET_RUN/wrong-key" ] || printf '0\tname\tany\t[TEMP-DISABLED]\n'; exit 0 ;;
+esac
 if [ -f "$SOCKET_RUN/join" ]; then echo wpa_state=COMPLETED; else echo wpa_state=SCANNING; fi
 """)
         script(self.bins / "wpa_supplicant", """
+sed -n 's/^\tssid=//p' "$5" > "$SOCKET_RUN/supp.ssid"
 echo $$ >> "$SOCKET_RUN/supp.started"
 trap 'exit 0' TERM
 while :; do /bin/sleep .02; done
@@ -116,6 +125,7 @@ export interface=wlan0
 hook=$SOCKET_RUN/wifi.worker/lease.sh
 "$hook" deconfig || exit 3
 while :; do
+    [ ! -e "$SOCKET_RUN/no-lease" ] || exit 1
     if [ -e "$SOCKET_RUN/offer" ]; then
         rm -f "$SOCKET_RUN/offer"
         "$hook" bound || exit 4
@@ -142,7 +152,7 @@ esac
         self.env = dict(os.environ, SOCKET_RUN=str(self.run), SOCKET_SYSTEM=str(self.root),
                         BASEOS_NTP_SYNC_FILE=str(self.run / "baseos-ntp-synchronized"),
                         BASEOS_NTP_PID_FILE=str(self.run / "baseos-ntp.pid"),
-                        SOCKET_NET_SYS=str(self.net), SOCKET_DHCP_HOOK=str(self.bins / "lease-hook"),
+                        SOCKET_NET_SYS=str(self.net), SOCKET_WIFI_PREF=str(self.root / "wifi.off"), SOCKET_DHCP_HOOK=str(self.bins / "lease-hook"),
                         PATH=str(self.bins) + ":" + os.environ["PATH"])
         self.ready = self.run / "wifi.ready"
         self.log = self.root / "output"
@@ -415,12 +425,180 @@ while [ ! -e "$SOCKET_RUN/quit-game" ]; do /bin/sleep .05; done
         self.assertFalse(self.ready.exists())
         self.assertFalse((self.run / "wifi.worker").exists())
 
-    def test_no_config_offline_exits_without_starting_clients(self):
+    def request(self, number, action, candidate=None):
+        if candidate is not None:
+            (self.run / "wifi.candidate").write_text(candidate)
+        (self.run / "wifi.request.new").write_text(f"{number} {action}\n")
+        os.replace(self.run / "wifi.request.new", self.run / "wifi.request")
+
+    def status(self):
+        try:
+            return dict(line.split("=", 1) for line in (self.run / "wifi.status").read_text().splitlines())
+        except FileNotFoundError:
+            return {}
+
+    def result(self, number, action, candidate=None):
+        self.request(number, action, candidate)
+        self.until(lambda: self.status().get("id") == str(number) and self.status()["result"] != "pending")
+        return self.status()["result"]
+
+    def supplicant_ssid(self):
+        return bytes.fromhex((self.run / "supp.ssid").read_text().strip()).decode()
+
+    def test_no_config_waits_idle_without_starting_clients(self):
         self.config.unlink()
-        self.assertEqual(self.start().wait(timeout=1), 0)
-        self.assertFalse(self.ready.exists())
-        self.assertFalse((self.run / "wifi.worker").exists())
+        self.wlan.mkdir()
+        proc = self.start()
+        self.until(lambda: self.status().get("state") == "idle")
+        time.sleep(.3)
         self.assertEqual(self.starts("supp") + self.starts("dhcp"), [])
+        self.stop(proc)
+        self.assertEqual(proc.returncode, 0)
+        self.assertFalse((self.run / "wifi.worker").exists())
+        self.assertFalse((self.run / "wifi.status").exists())
+
+    def test_fresh_card_scans_joins_and_reconnects_after_restart(self):
+        self.config = self.root / "Config/wifi.txt"
+        self.wlan.mkdir()
+        proc = self.start()
+        self.until(lambda: self.status().get("state") == "idle")
+        self.request(1, "scan")
+        self.until(lambda: self.starts("supp"))
+        self.assertEqual((self.run / "supp.ssid").read_text(), "")
+        # The radio reports its results after the first poll.
+        self.until(lambda: self.status() == {"id": "1", "result": "pending", "state": "idle", "saved": ""})
+        aps = "02:00:00:00:00:01\t2437\t-50\t[WPA2-PSK-CCMP][ESS]\tCaf\\xc3\\xa9 net\n"
+        (self.run / "aps").write_text(aps)
+        self.until(lambda: self.status() == {"id": "1", "result": "ok", "state": "idle", "saved": ""})
+        self.assertEqual((self.run / "wifi.scan").read_text().splitlines()[1:], aps.splitlines())
+        ssid, psk = "Café net", 'pass word "#= $HOME'
+        candidate = f"ssid={ssid}\npsk={psk}\n"
+        self.request(2, "join", candidate)
+        self.until(lambda: len(self.starts("supp")) == 2)
+        self.assertEqual(self.supplicant_ssid(), ssid)
+        self.assertFalse(self.config.exists())
+        self.assertFalse((self.run / "wifi.candidate").exists())
+        self.mark("join")
+        self.mark("offer")
+        (self.run / "route").write_text("wlan0")
+        self.until(lambda: self.status() == {"id": "2", "result": "ok", "state": "connected", "saved": ssid})
+        self.assertTrue(self.ready.exists())
+        self.assertTrue(self.config.read_text().endswith(candidate))
+        self.assertFalse((self.run / "wifi.worker/candidate").exists())
+        self.assertEqual(list(self.config.parent.iterdir()), [self.config])
+        # A cancel request that arrives after the commit changes nothing.
+        self.assertEqual(self.result(3, "cancel"), "ok")
+        self.assertEqual(self.status(), {"id": "3", "result": "ok", "state": "connected", "saved": ssid})
+        self.assertTrue(self.ready.exists() and self.config.read_text().endswith(candidate))
+        self.stop(proc)
+        self.mark("offer")
+        self.start()
+        self.until(self.ready.exists)
+        self.assertEqual(self.supplicant_ssid(), ssid)
+        self.assertNotIn(psk, self.log.read_text())
+
+    def test_failed_canceled_and_unsaved_joins_keep_the_previous_network(self):
+        self.config = self.root / "Config/wifi.txt"
+        self.config.parent.mkdir()
+        saved = "ssid=Example\npsk=example-passphrase\n"
+        self.config.write_text(saved)
+        self.connect()
+        self.start()
+        self.until(self.ready.exists)
+        other = "ssid=Other\npsk=other-passphrase\n"
+        number = 0
+        for invalid in ("ssid=Other \npsk=12345678\n", "ssid=Other\npsk= 12345678\n", "ssid=Other\npsk=1234567\n",
+                        "ssid=Other\npsk=12345678\nssid=Third\n", "ssid=" + "x" * 33 + "\npsk=12345678\n",
+                        "psk=12345678\nssid=Other\n", None):
+            number += 1
+            self.assertEqual(self.result(number, "join", invalid), "invalid")
+            self.assertFalse((self.run / "wifi.candidate").exists())
+        self.assertEqual(len(self.starts("supp")), 1)
+        self.assertTrue(self.ready.exists())
+
+        def attempt(prepare, expected):
+            nonlocal number
+            started = len(self.starts("supp"))
+            (self.run / "join").unlink()
+            number += 1
+            self.request(number, "join", other)
+            self.until(lambda: len(self.starts("supp")) == started + 1)
+            self.assertEqual(self.supplicant_ssid(), "Other")
+            self.assertFalse(self.ready.exists())
+            prepare()
+            self.until(lambda: self.status()["id"] == str(number) and self.status()["result"] != "pending")
+            self.assertEqual(self.status()["result"], expected)
+            for name in ("wrong-key", "no-lease", "shallow.sleep"):
+                (self.run / name).unlink(missing_ok=True)
+            self.assertEqual(self.config.read_text(), saved)
+            self.assertFalse((self.run / "wifi.worker/candidate").exists())
+            # The worker returns to the saved network without a request.
+            self.until(lambda: len(self.starts("supp")) == started + 2)
+            self.assertEqual(self.supplicant_ssid(), "Example")
+            self.mark("join")
+            self.mark("offer")
+            self.until(lambda: self.ready.exists() and self.status()["saved"] == "Example")
+
+        attempt(lambda: self.mark("wrong-key"), "auth")
+        attempt(lambda: None, "notfound")
+        attempt(lambda: (self.mark("no-lease"), self.mark("join")), "dhcp")
+        attempt(lambda: self.mark("shallow.sleep"), "canceled")
+
+        def cancel():
+            nonlocal number
+            number += 1
+            self.request(number, "cancel")
+        attempt(cancel, "ok")
+        if os.geteuid():
+            self.config.parent.chmod(0o500)
+            self.addCleanup(self.config.parent.chmod, 0o700)
+            attempt(lambda: (self.mark("join"), self.mark("offer")), "save")
+        self.assertNotIn("passphrase", self.log.read_text())
+
+    def test_off_survives_restart_and_forget_removes_the_network(self):
+        self.connect()
+        proc = self.start()
+        self.until(self.ready.exists)
+        self.assertEqual(self.result(1, "off"), "ok")
+        self.assertEqual(self.status()["state"], "off")
+        self.assertFalse(self.ready.exists())
+        self.assertTrue((self.root / "wifi.off").exists())
+        self.assertTrue(self.config.exists())
+        for pid in self.starts("supp") + self.starts("dhcp"):
+            with self.assertRaises(ProcessLookupError):
+                os.kill(pid, 0)
+        self.assertEqual(self.result(2, "scan"), "off")
+        self.stop(proc)
+        self.start()
+        self.until(lambda: self.status().get("state") == "off")
+        time.sleep(.3)
+        self.assertEqual(len(self.starts("supp")), 1)
+        self.mark("offer")
+        self.assertEqual(self.result(3, "on"), "ok")
+        self.until(self.ready.exists)
+        self.assertFalse((self.root / "wifi.off").exists())
+        self.assertEqual(self.result(4, "forget"), "ok")
+        self.until(lambda: self.status()["state"] == "idle")
+        self.assertEqual(self.status()["saved"], "")
+        self.assertFalse(self.config.exists())
+        self.assertFalse(self.ready.exists())
+        with self.assertRaises(ProcessLookupError):
+            os.kill(self.starts("supp")[-1], 0)
+
+    def test_borrowed_connection_refuses_requests(self):
+        self.wlan.mkdir()
+        self.mark("join")
+        self.mark("external")
+        self.mark("address")
+        (self.run / "baseos-ntp-synchronized").write_text("1794960000\n")
+        (self.run / "route").write_text("wlan0")
+        self.start()
+        self.until(self.ready.exists)
+        for number, action in enumerate(("scan", "join", "forget", "off"), 1):
+            self.assertEqual(self.result(number, action, "ssid=Other\npsk=12345678\n"), "external")
+        self.assertEqual(self.status()["state"], "external")
+        self.assertTrue(self.ready.exists() and self.config.exists())
+        self.assertEqual(self.starts("supp"), [])
 
 
 if __name__ == "__main__":

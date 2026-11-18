@@ -67,6 +67,9 @@ use_source addons/FrontendPlugin/controller_dialog.gd "$OVERLAY/addons/FrontendP
 use_source addons/FrontendPlugin/controls_hud.gd "$OVERLAY/addons/FrontendPlugin/controls_hud.gd"
 use_source addons/FrontendPlugin/artwork.gd "$OVERLAY/addons/FrontendPlugin/artwork.gd"
 use_source addons/FrontendPlugin/shader_startup.gd "$OVERLAY/addons/FrontendPlugin/shader_startup.gd"
+for script in device_settings wifi_settings bluetooth_settings bluetooth_audio game_overlay; do
+	use_source "addons/FrontendPlugin/$script.gd" "$OVERLAY/addons/FrontendPlugin/$script.gd"
+done
 cp -R "$OVERLAY/addons/FrontendPlugin/controls" "$RES/addons/FrontendPlugin/controls"
 mkdir -p "$RES/shaders"
 cp "$OVERLAY/shaders/display_aa.gdshader" "$RES/shaders/display_aa.gdshader"

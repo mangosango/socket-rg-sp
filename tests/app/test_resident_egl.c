@@ -11,6 +11,7 @@
 static void *pcm_open_target;
 static void *pcm_close_target;
 static EGLSurface current_surface;
+static EGLSurface overlay_surface;
 static int surface_live;
 static int surface_sequence;
 static int surface_swaps;
@@ -62,6 +63,14 @@ static EGLSurface create_window(EGLDisplay display, EGLConfig config,
    return surface;
 }
 
+static EGLSurface create_pbuffer(EGLDisplay display, EGLConfig config, const EGLint *attributes)
+{
+   PFNEGLCREATEPBUFFERSURFACEPROC real = dlsym(RTLD_NEXT, "eglCreatePbufferSurface");
+   overlay_surface = real(display, config, attributes);
+   record("overlay_create", overlay_surface);
+   return overlay_surface;
+}
+
 static EGLContext create_context(EGLDisplay display, EGLConfig config,
       EGLContext share, const EGLint *attributes)
 {
@@ -73,6 +82,13 @@ static EGLContext create_context(EGLDisplay display, EGLConfig config,
 
 static EGLBoolean destroy_surface(EGLDisplay display, EGLSurface surface)
 {
+   if (surface == overlay_surface && surface != EGL_NO_SURFACE)
+   {
+      PFNEGLDESTROYSURFACEPROC destroy = dlsym(RTLD_NEXT, "eglDestroySurface");
+      record("overlay_destroy", surface);
+      overlay_surface = EGL_NO_SURFACE;
+      return destroy(display, surface);
+   }
    if (!surface_live || surface != current_surface)
       record("surface_invalid", surface);
    /* Mesa 20.3 can reuse a freed pbuffer as a 1x1 drawable in a retained context.
@@ -86,7 +102,9 @@ static EGLBoolean destroy_surface(EGLDisplay display, EGLSurface surface)
 static EGLBoolean make_current(EGLDisplay display, EGLSurface draw,
       EGLSurface read, EGLContext context)
 {
-   if (draw != EGL_NO_SURFACE && (!surface_live || draw != current_surface || read != current_surface))
+   if (draw == overlay_surface && draw != EGL_NO_SURFACE && read == draw)
+      record("overlay_current", draw);
+   else if (draw != EGL_NO_SURFACE && (!surface_live || draw != current_surface || read != current_surface))
       record("surface_invalid", draw);
    PFNEGLMAKECURRENTPROC real = dlsym(RTLD_NEXT, "eglMakeCurrent");
    EGLBoolean result = real(display, draw, read, context);
@@ -196,6 +214,7 @@ void *dlsym(void *handle, const char *name)
    {
       if (strcmp(name, "eglChooseConfig") == 0) return eglChooseConfig;
       if (strcmp(name, "eglCreateWindowSurface") == 0) return create_window;
+      if (strcmp(name, "eglCreatePbufferSurface") == 0) return create_pbuffer;
       if (strcmp(name, "eglCreateContext") == 0) return create_context;
       if (strcmp(name, "eglDestroySurface") == 0) return destroy_surface;
       if (strcmp(name, "eglMakeCurrent") == 0) return make_current;

@@ -19,6 +19,7 @@ static int actions(enum ControlAction action) {
 	return n;
 }
 static void reset(struct Controls *s) { memset(s, 0, sizeof(*s)); count = 0; }
+static void launcher(struct Controls *s) { reset(s); s->launcher = 1; }
 
 int main(void) {
 	struct Controls s = {0};
@@ -219,5 +220,95 @@ int main(void) {
 	wake.closed = 1;
 	assert(controls_sleep_event(&wake, EV_SW, SW_LID, -1, 0) == SLEEP_WAIT);
 	assert(controls_sleep_event(&wake, EV_SW, SW_LID, 0, 180100) == SLEEP_WAKE);
+	// In a game, MENU and SELECT + MENU keep their direct behavior.
+	reset(&s);
+	event(&s, EV_KEY, 0x136, 1, 100);
+	event(&s, EV_KEY, PAD_MENU, 1, 150);
+	assert(count == 2 && seen[0].code == 0x136 && seen[1].code == PAD_MENU && seen[1].value == 1);
+	event(&s, EV_KEY, PAD_MENU, 2, 400);
+	controls_tick(&s, 1200, sink);
+	event(&s, EV_KEY, PAD_MENU, 0, 1300);
+	assert(count == 4 && seen[3].code == PAD_MENU && seen[3].value == 0 && !actions(SETTINGS));
+	// In the launcher, each MENU press toggles Device Settings one time.
+	// The launcher gets no MENU event, also for a hold with kernel repeats.
+	launcher(&s);
+	event(&s, EV_KEY, PAD_MENU, 1, 100);
+	assert(count == 1 && seen[0].action == SETTINGS);
+	event(&s, EV_KEY, PAD_MENU, 2, 400);
+	event(&s, EV_KEY, PAD_MENU, 1, 450);
+	controls_tick(&s, 5000, sink);
+	event(&s, EV_KEY, PAD_MENU, 0, 5100);
+	controls_tick(&s, 6000, sink);
+	assert(count == 1 && !s.menu);
+	event(&s, EV_KEY, PAD_MENU, 1, 6100);
+	event(&s, EV_KEY, PAD_MENU, 0, 6110);
+	assert(count == 2 && actions(SETTINGS) == 2 && !actions(FORWARD));
+	// Another button during a MENU hold is sent without MENU.
+	launcher(&s);
+	event(&s, EV_KEY, PAD_MENU, 1, 100);
+	event(&s, EV_KEY, 0x130, 1, 150);
+	event(&s, EV_KEY, PAD_MENU, 0, 200);
+	assert(count == 2 && seen[1].action == FORWARD && seen[1].code == 0x130);
+	// MENU during a SELECT hold toggles one time. SELECT keeps its own behavior.
+	launcher(&s);
+	event(&s, EV_KEY, 0x136, 1, 100);
+	event(&s, EV_KEY, PAD_MENU, 1, 150);
+	event(&s, EV_KEY, PAD_MENU, 0, 200);
+	assert(count == 1 && seen[0].action == SETTINGS);
+	event(&s, EV_KEY, 0x136, 0, 220);
+	controls_tick(&s, 280, sink);
+	assert(count == 3 && seen[1].code == 0x136 && seen[1].value == 1 && seen[2].code == 0x136 && seen[2].value == 0);
+	launcher(&s);
+	event(&s, EV_KEY, 0x136, 1, 100);
+	controls_tick(&s, 350, sink);
+	event(&s, EV_KEY, PAD_MENU, 1, 400);
+	event(&s, EV_KEY, PAD_MENU, 0, 500);
+	event(&s, EV_KEY, 0x136, 0, 600);
+	assert(count == 3 && seen[0].value == 1 && seen[1].action == SETTINGS && seen[2].code == 0x136 && seen[2].value == 0);
+	// SELECT + direction stays a brightness shortcut in the launcher, also during a MENU hold.
+	launcher(&s);
+	event(&s, EV_KEY, PAD_MENU, 1, 50);
+	event(&s, EV_KEY, 0x136, 1, 100);
+	event(&s, EV_ABS, ABS_HAT0Y, -1, 150);
+	event(&s, EV_ABS, ABS_HAT0Y, 0, 200);
+	event(&s, EV_KEY, 0x136, 0, 250);
+	event(&s, EV_KEY, PAD_MENU, 0, 300);
+	assert(actions(BRIGHTNESS) == 1 && actions(SETTINGS) == 1);
+	// A MENU hold that leaves a game is released in the launcher and does not toggle.
+	reset(&s);
+	event(&s, EV_KEY, PAD_MENU, 1, 100);
+	s.launcher = 1;
+	event(&s, EV_KEY, PAD_MENU, 2, 400);
+	controls_tick(&s, 1000, sink);
+	event(&s, EV_KEY, PAD_MENU, 0, 1200);
+	assert(!actions(SETTINGS) && seen[0].value == 1 && seen[count - 1].code == PAD_MENU && seen[count - 1].value == 0);
+	// The next press in the launcher toggles.
+	event(&s, EV_KEY, PAD_MENU, 1, 1300);
+	event(&s, EV_KEY, PAD_MENU, 0, 1400);
+	assert(actions(SETTINGS) == 1 && seen[count - 1].action == SETTINGS);
+	// A launcher MENU hold that enters a game gives the game no part of that press.
+	launcher(&s);
+	event(&s, EV_KEY, PAD_MENU, 1, 100);
+	s.launcher = 0;
+	controls_tick(&s, 120, sink);
+	event(&s, EV_KEY, PAD_MENU, 2, 400);
+	event(&s, EV_KEY, PAD_MENU, 0, 500);
+	assert(count == 1 && seen[0].action == SETTINGS && !s.menu);
+	// The game gets the next press directly.
+	event(&s, EV_KEY, PAD_MENU, 1, 600);
+	event(&s, EV_KEY, PAD_MENU, 0, 700);
+	assert(count == 3 && actions(SETTINGS) == 1 && seen[1].code == PAD_MENU && seen[1].value == 1 && seen[2].value == 0);
+	// A MENU hold through wake or event loss needs a new press to toggle.
+	launcher(&s);
+	struct ControlStream stream = {0};
+	controls_stream_event(&s, &stream, EV_KEY, PAD_MENU, 1, 100, sink);
+	controls_stream_event(&s, &stream, EV_SYN, SYN_DROPPED, 0, 110, sink);
+	controls_stream_event(&s, &stream, EV_SYN, SYN_REPORT, 0, 120, sink);
+	s.launcher = 1;
+	controls_stream_event(&s, &stream, EV_KEY, PAD_MENU, 2, 400, sink);
+	controls_stream_event(&s, &stream, EV_KEY, PAD_MENU, 0, 500, sink);
+	assert(actions(SETTINGS) == 1 && !s.menu);
+	controls_stream_event(&s, &stream, EV_KEY, PAD_MENU, 1, 600, sink);
+	assert(actions(SETTINGS) == 2);
 	puts("hardware input checks passed");
 }

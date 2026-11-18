@@ -6,10 +6,18 @@ menu, the controls overlay, sleep and the MENU hold actions.
 
 ## Game menu
 
-- Tap MENU to open the game menu. You'll find Resume, core options, save and
-  load states, screenshots, Screen settings, Gameplay settings, control
-  hints and Save & Exit.
-- Hold MENU for one second to save an automatic state and go back to Socket.
+- Tap MENU to pause the game and open **Device Settings**. Tap MENU again
+  to resume. Socket renders the same panel used in the launcher, with its
+  active theme, brightness and volume controls, Wi-Fi keyboard and Bluetooth
+  pairing prompts. RetroArch shows it over the paused game and forwards pad
+  input. If the launcher is unavailable, RetroArch opens its built-in panel.
+- Open **Game** for core options, save and load states, screenshots, Screen
+  settings, Gameplay settings, controls and Save & Exit. Select **Cheats**
+  on the first page to manage codes for the current game. These pages use
+  the Device Settings panel, including its font, selection outline and
+  controller hints. Long lists scroll with the selection. B goes back one
+  page. RetroArch applies the selected options and codes.
+- During play, hold MENU for one second to save an automatic state and go back to Socket.
   The next launch with the same core loads that state. If the save fails,
   the game stays open and shows a warning.
 - Hold L2 to rewind. Hold R2 to fast-forward. Rewind needs core support.
@@ -18,8 +26,29 @@ menu, the controls overlay, sleep and the MENU hold actions.
 - RetroArch writes in-game save memory to the card every 10 seconds. States
   are separate.
 
+Socket and RetroArch negotiate shared subpages at game start. With protocol
+version 2, RetroArch sends the title, status, selection and up to six visible
+rows when they change. Socket acknowledges the update in the frame it draws.
+If either component supports only version 1, RetroArch draws its own subpages.
+
 The menu leaves out Slot's advanced features, such as bezels, blue light
 filter settings and button remapping.
+
+## Cheats
+
+1. During play, tap **MENU** and open **Cheats**. Connect to Wi-Fi from Device
+   Settings if you need to download files.
+2. For GB, GBC or GBA, select **Download cheats for this game**. If the ROM
+   has a different name, select **Choose a title in the libretro list** and
+   pick the matching game and region. The files come from the
+   [libretro cheat database](https://github.com/libretro/libretro-database/tree/master/cht).
+3. Open **Cheat files** and select a file. Its codes start disabled. Select a code
+   to turn it on or off, then tap **MENU** to return to the game. RetroArch
+   saves the selection for the next launch with the same core.
+
+Downloaded files work offline. You can also copy a `.cht` file into the
+matching folder under `Saves/socket/cheats`, such as
+`Nintendo - Game Boy Advance`.
 
 ## GB, GBC and GBA profiles
 

@@ -10,6 +10,7 @@ export SOCKET_RESUME_MANIFEST="${SOCKET_RESUME_MANIFEST:-/mnt/sdcard/Saves/socke
 # The resume record is data, never shell source.
 case "${1:-}" in ''|*[!A-Za-z0-9_-]*) exit 1 ;; esac
 case "${3:-}" in ''|*[!A-Za-z0-9_-]*) exit 1 ;; esac
+export SOCKET_GAME_PLATFORM="$3"
 case "${2:-}" in /*) ;; *) exit 1 ;; esac
 case "$2" in *'
 '*|*"$(printf '\r')"*) exit 1 ;; esac

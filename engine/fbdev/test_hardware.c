@@ -410,6 +410,25 @@ static void snapshot(unsigned sequence, int volume, int brightness, int kind) {
 	fclose(f);
 }
 
+// Send one Device Settings request. A NULL reply means that no reply is expected.
+static void level_case(const char *request, const char *reply) {
+	char path[1024], ack[1024], actual[64] = "";
+	snprintf(path, sizeof(path), "%s/controls.set", run_dir);
+	snprintf(ack, sizeof(ack), "%s/controls.ack", run_dir);
+	unlink(ack);
+	FILE *f = fopen(path, "w");
+	assert(f && fputs(request, f) >= 0 && !fclose(f));
+	level_request();
+	assert(access(path, F_OK) < 0);
+	f = fopen(ack, "r");
+	assert(!f == !reply);
+	if (!f) return;
+	actual[fread(actual, 1, sizeof(actual) - 1, f)] = 0;
+	fclose(f);
+	assert(!strcmp(actual, reply));
+	assert(!unlink(ack));
+}
+
 int main(void) {
 	// Boottime reveals kernel suspend without changing monotonic input deadlines.
 	now_ms = 100;
@@ -576,8 +595,52 @@ int main(void) {
 	snapshot(60, 100, 9, 2);
 	fd = open(backlight, O_CREAT | O_WRONLY, 0600);
 	assert(fd >= 0); close(fd);
+	// Device Settings requests are validated, applied and acknowledged by token.
+	level_request();
+	level_case("71 volume 35\n", "71 ok 35\n");
+	snapshot(61, 35, 9, 1);
+	level_case("72 brightness 4\n", "72 ok 4\n");
+	snapshot(62, 35, 3, 2);
+	assert(number(backlight) == backlight_value(4) && brightness_step == 4);
+	const char *rejected[] = { "73 volume 42\n", "73 volume 105\n", "73 volume -5\n",
+		"73 brightness 0\n", "73 brightness 11\n" };
+	for (unsigned i = 0; i < sizeof(rejected) / sizeof(*rejected); i++)
+		level_case(rejected[i], i < 3 ? "73 error 35\n" : "73 error 4\n");
+	const char *malformed[] = { "volume 35\n", "74 volume 35", "74 volume 35\nx", "74 volume\n",
+		"x74 volume 35\n", "74 volume 35 1\n", "74 temperature 3\n", "" };
+	for (unsigned i = 0; i < sizeof(malformed) / sizeof(*malformed); i++) level_case(malformed[i], NULL);
+	// A rejected backlight write reports an error and keeps the published level.
+	assert(!unlink(backlight));
+	level_case("75 brightness 9\n", "75 error 4\n");
+	fd = open(backlight, O_CREAT | O_WRONLY, 0600);
+	assert(fd >= 0); close(fd);
+	snapshot(62, 35, 3, 2);
+	assert(volume_level == 35 && brightness_step == 4);
+	level_case("76 volume 100\n", "76 ok 100\n");
+	level_case("77 brightness 10\n", "77 ok 10\n");
+	snapshot(64, 100, 9, 2);
+	// Each MENU press in the launcher publishes the press count of its epoch.
+	// A discard removes the file and starts a larger epoch, also in the same millisecond.
+	char open_path[1024], open_text[40], open_end;
+	unsigned long long open_epoch, last_epoch = 0;
+	unsigned open_count;
+	snprintf(open_path, sizeof(open_path), "%s/settings.open", run_dir);
+	for (int epoch = 0; epoch < 3; epoch++) {
+		discard_settings_presses();
+		assert(access(open_path, F_OK) < 0);
+		for (unsigned press = 1; press <= 2; press++) {
+			action(SETTINGS, 0, 0, 0);
+			FILE *open_file = fopen(open_path, "r");
+			assert(open_file && fgets(open_text, sizeof(open_text), open_file) && !fclose(open_file));
+			assert(sscanf(open_text, "%llu %u%c", &open_epoch, &open_count, &open_end) == 3 && open_end == '\n');
+			assert(open_count == press && open_epoch > last_epoch);
+			if (press == 2) last_epoch = open_epoch;
+		}
+	}
+	discard_settings_presses();
+	assert(access(open_path, F_OK) < 0);
 	// Settings are saved after a one-second pause, durably, and validated on load.
-	char settings_file[1024];
+	char settings_file[sizeof(settings_path)];
 	snprintf(settings_file, sizeof(settings_file), "%s/controls.cfg", temp);
 	snprintf(settings_path, sizeof(settings_path), "%s", settings_file);
 	assert(settings_due && settings_due <= now_ms + 1000);

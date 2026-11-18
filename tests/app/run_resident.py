@@ -88,7 +88,8 @@ assert (output / "child-ok").read_text().splitlines() == ["ok"] * 3
 pid = (output / "app.pid").read_text().strip()
 events = [line.split() for line in (output / "egl.trace").read_text().splitlines()]
 parent = [event for event in events if event[0] == pid]
-for operation, count in (("context_create", 1), ("surface_create", 4),
+for operation, count in (("context_create", 1), ("overlay_create", 1), ("overlay_destroy", 1),
+                         ("overlay_current", 3), ("surface_create", 4),
                          ("surface_destroy", 4), ("audio_open", 4), ("audio_close", 4)):
     assert sum(event[1] == operation for event in parent) == count, parent
 contexts = {event[2] for event in parent if event[1] == "context_current" and event[2] != "(nil)"}

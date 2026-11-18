@@ -19,7 +19,16 @@ class RetroArchBuildTests(unittest.TestCase):
             tools.mkdir()
             for patch in (ROOT / "tools").glob("retroarch-*.patch"):
                 shutil.copy(patch, tools)
-            for name in ("retroarch-controls.h", "retroarch-control-icons.h", "retroarch-quick-menu.h", "retroarch-achievements.h"):
+            headers = {
+                "retroarch-controls.h": "socket_controls.h",
+                "retroarch-control-icons.h": "socket_control_icons.h",
+                "retroarch-quick-menu.h": "socket_quick_menu.h",
+                "retroarch-device-menu.h": "socket_device_menu.h",
+                "retroarch-menu-overlay.h": "socket_menu_overlay.h",
+                "retroarch-cheats-menu.h": "socket_cheats_menu.h",
+                "retroarch-achievements.h": "socket_achievements.h",
+            }
+            for name in headers:
                 shutil.copy(ROOT / "tools" / name, tools)
             # Keep references to original lines while applying each patch in order.
             # Later patch context can fill lines that earlier patches did not use.
@@ -87,9 +96,7 @@ class RetroArchBuildTests(unittest.TestCase):
             pristine = {path: path.read_bytes() for path in (root / "work/RetroArch").rglob("*") if path.is_file()}
             first = subprocess.run(["sh", str(script)], capture_output=True, text=True)
             self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
-            for name, installed in (("retroarch-controls.h", "socket_controls.h"),
-                                    ("retroarch-control-icons.h", "socket_control_icons.h"),
-                                    ("retroarch-quick-menu.h", "socket_quick_menu.h")):
+            for name, installed in headers.items():
                 self.assertEqual((root / "work/RetroArch" / installed).read_bytes(),
                                  (tools / name).read_bytes())
             patched = source.read_text()

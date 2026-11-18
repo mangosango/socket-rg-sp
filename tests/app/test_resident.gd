@@ -36,7 +36,7 @@ func _run() -> void:
 	for cycle in range(3):
 		# Launch from processing, outside the renderer's post-draw signal.
 		await process_frame
-		root.get_node("FrontendBridge").launch_emulator({"core": "test", "rom": "fixture", "platform": "gb"})
+		await root.get_node("FrontendBridge").launch_emulator({"core": "test", "rom": "fixture", "platform": "gb"})
 		if not require(FileAccess.get_file_as_string(OS.get_environment("SOCKET_RUN").path_join("child-ok")).count("ok\n") == cycle + 1, "RetroArch child succeeds"): return
 		if not require(hud._sequence == cycle and not hud._view.visible and hud._shown_at == -1500, "game controls synchronize without a HUD"): return
 		if not require(is_equal_approx(AudioServer.get_bus_volume_linear(0), 0.64) and AudioServer.is_bus_mute(sfx), "game gain synchronizes and UI mute survives"): return
@@ -73,7 +73,7 @@ func _run_result(result: String) -> void:
 		quit()
 		return
 	if result == "success" or result == "crashacked": bridge.set_process(false)
-	bridge.launch_emulator({"core": "test", "rom": "fixture", "platform": "gb"})
+	await bridge.launch_emulator({"core": "test", "rom": "fixture", "platform": "gb"})
 	var request: = OS.get_environment("SOCKET_RUN").path_join("poweroff.request")
 	# A crash after the acknowledged save also powers off; the save is durable.
 	if result == "success" or result == "crashacked":

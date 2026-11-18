@@ -32,6 +32,7 @@ class DisplayServerFbdev : public DisplayServerHeadless {
 	FbdevWindow native_window = {};
 	EGLDisplay egl_display = EGL_NO_DISPLAY;
 	EGLSurface egl_surface = EGL_NO_SURFACE;
+	EGLSurface overlay_surface = EGL_NO_SURFACE;
 	EGLContext egl_context = EGL_NO_CONTEXT;
 	EGLConfig egl_config = nullptr;
 	bool minimized = false;

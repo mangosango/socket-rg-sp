@@ -12,7 +12,7 @@ mkdir -p "$WORK"
 # Detect applied patches in reverse order on an isolated source copy.
 PATCH_STATE="$(mktemp -d)"
 trap 'rm -rf "$PATCH_STATE"' EXIT HUP INT TERM
-PATCHES="retroarch-mali-rgb.patch retroarch-menu-hold.patch retroarch-menu-input.patch retroarch-controls.patch retroarch-quick-menu.patch retroarch-sleep.patch retroarch-achievements.patch"
+PATCHES="retroarch-mali-rgb.patch retroarch-menu-hold.patch retroarch-menu-input.patch retroarch-controls.patch retroarch-quick-menu.patch retroarch-sleep.patch retroarch-achievements.patch retroarch-device-menu.patch retroarch-menu-overlay.patch"
 reverse_patches=""
 for patch_file in $PATCHES; do
 	sed -n 's|^--- a/||p' "$HERE/$patch_file"
@@ -38,6 +38,9 @@ done
 cp "$HERE/retroarch-controls.h" "$SRC/socket_controls.h"
 cp "$HERE/retroarch-control-icons.h" "$SRC/socket_control_icons.h"
 cp "$HERE/retroarch-quick-menu.h" "$SRC/socket_quick_menu.h"
+cp "$HERE/retroarch-device-menu.h" "$SRC/socket_device_menu.h"
+cp "$HERE/retroarch-menu-overlay.h" "$SRC/socket_menu_overlay.h"
+cp "$HERE/retroarch-cheats-menu.h" "$SRC/socket_cheats_menu.h"
 
 cp "$HERE/retroarch-achievements.h" "$SRC/socket_achievements.h"
 

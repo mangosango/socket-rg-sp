@@ -31,6 +31,7 @@ rm -f "$SOCKET_RUN/hardware.ready" "$SOCKET_RUN/app.pid" "$SOCKET_RUN/poweroff.r
 hardware_pid=$!
 app_pid=
 wifi_pid=
+bluetooth_pid=
 stop_device_app() {
 	device_pid=$(cat "$SOCKET_RUN/app.pid" 2>/dev/null)
 	case "$device_pid" in
@@ -42,6 +43,10 @@ stop_device_app() {
 	esac
 }
 cleanup() {
+	if [ -n "$bluetooth_pid" ]; then
+		kill "$bluetooth_pid" 2>/dev/null
+		wait "$bluetooth_pid" 2>/dev/null
+	fi
 	if [ "${wifi_started:-0}" = 1 ]; then
 		sh "$SYS/wifi.sh" stop
 		[ -z "$wifi_pid" ] || wait "$wifi_pid" 2>/dev/null
@@ -75,6 +80,20 @@ start_wifi() {
 }
 start_wifi
 
+start_bluetooth() {
+	sh "$SYS/bluetooth.sh" run >/dev/null 2>&1 &
+	bluetooth_pid=$!
+}
+
+# Use the system mixer configuration and the current headset route.
+if [ -f "$SYS/bluetooth.sh" ]; then
+	: > "$SOCKET_RUN/bluetooth.asound" || exit 1
+	if [ -n "${ALSA_CONFIG_PATH:-}" ] || [ -r /usr/share/alsa/alsa.conf ]; then
+		export ALSA_CONFIG_PATH="${ALSA_CONFIG_PATH:-/usr/share/alsa/alsa.conf}:$SOCKET_RUN/bluetooth.asound"
+	fi
+	start_bluetooth
+fi
+
 run_app() {
 	"$@" &
 	app_pid=$!
@@ -86,6 +105,12 @@ run_app() {
 			wifi_status=$?
 			wifi_pid=
 			if [ "$wifi_status" -gt 128 ] && [ ! -e "$SOCKET_RUN/wifi.stop" ]; then start_wifi; fi
+		fi
+		if [ -n "$bluetooth_pid" ] && ! kill -0 "$bluetooth_pid" 2>/dev/null; then
+			wait "$bluetooth_pid"
+			bluetooth_status=$?
+			bluetooth_pid=
+			if [ "$bluetooth_status" -gt 128 ] && [ ! -e "$SOCKET_RUN/bluetooth.stop" ]; then start_bluetooth; fi
 		fi
 		sleep 0.1
 	done

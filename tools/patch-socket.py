@@ -128,7 +128,7 @@ EDITS = [
         ScreenDialog.display(TITLE, "Use the Mac setup tool to update emulator lists on the SD card.", func(): pass, Callable())
         return
 """), 1, M)),
-    # Start RetroArch on Linux. 0.3.2 has no play sessions.
+    # Start RetroArch on Linux, and wait until the game stops. 0.3.2 has no play sessions.
     *[only(version, (MANAGER, r"^(\t\tFrontendBridge\.launch_emulator\(intent_params\)\n)", lambda m, session=session: m[1] + gd("""\
     elif OS.get_name() == "Linux":
         var core: String = FrontendBridge.libretro_core(raw_args)
@@ -136,7 +136,7 @@ EDITS = [
             ScreenDialog.display("Cannot Launch", "BaseOS runs RetroArch emulators only. Choose a RetroArch core for this platform and add its _libretro.so file to System/socket/cores.", func(): pass, Callable())
             return
 """ + session + """\
-        FrontendBridge.launch_emulator({"core": core, "rom": game.rom_path, "platform": game.platform_id})
+        await FrontendBridge.launch_emulator({"core": core, "rom": game.rom_path, "platform": game.platform_id})
 """), 1, M)) for version, session in ((MODERN, '        _begin_play_session(game, "retroarch")\n'), (V032, ""))],
     # Use the bridge on Linux for play time and folder listing.
     (MANAGER, r'OS\.get_name\(\) == "Android"(:\n\t+[^\n]*FrontendBridge\.get_files_in_dir\()',

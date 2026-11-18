@@ -181,6 +181,28 @@ static int publish_controls(int volume, int kind) {
 	return 0;
 }
 
+// Replace one text file in the run directory in one step.
+static int publish_text(const char *name, const char *text) {
+	char path[1024], temporary[1024];
+	snprintf(path, sizeof(path), "%s/%s", run_dir, name);
+	snprintf(temporary, sizeof(temporary), "%s/%s.tmp", run_dir, name);
+	FILE *f = fopen(temporary, "w");
+	int ok = f && fputs(text, f) >= 0;
+	if (f && fclose(f)) ok = 0;
+	if (!ok || rename(temporary, path)) {
+		fprintf(stderr, "socket-hardware: cannot write %s\n", path);
+		unlink(temporary);
+		return -1;
+	}
+	return 0;
+}
+
+static void remove_run_file(const char *name) {
+	char path[1024];
+	snprintf(path, sizeof(path), "%s/%s", run_dir, name);
+	unlink(path);
+}
+
 // Keep volume, brightness and temperature across power cycles.
 static int save_settings(void) {
 	settings_due = 0;
@@ -262,11 +284,62 @@ static int get_backlight(void) {
 	return level;
 }
 
+static int set_brightness(int step) {
+	if (set_backlight(backlight_value(step))) return -1;
+	brightness_step = step;
+	return 0;
+}
+
 static void brightness(int direction) {
 	int next = brightness_step + direction;
 	if (next < 1) next = 1;
 	if (next > 10) next = 10;
-	if (!set_backlight(backlight_value(next))) brightness_step = next;
+	set_brightness(next);
+}
+
+// Device Settings sends one level change in controls.set:
+//   "<token> volume <0 to 100, step 5>" or "<token> brightness <1 to 10>".
+// The reply in controls.ack is "<token> ok <level>" or "<token> error <level>".
+// <level> is the level in effect after the request, also after a failure.
+// A request that is not in this format gets no reply.
+static void level_request(void) {
+	char path[1024], line[64], token[20], name[16], reply[48], extra;
+	int value, volume;
+	snprintf(path, sizeof(path), "%s/controls.set", run_dir);
+	FILE *f = fopen(path, "r");
+	if (!f) return;
+	int ok = fgets(line, sizeof(line), f) && fgetc(f) == EOF &&
+		sscanf(line, "%19[0-9] %15[a-z] %3d%c", token, name, &value, &extra) == 4 && extra == '\n';
+	fclose(f);
+	unlink(path);
+	if (!ok || (strcmp(name, "volume") && strcmp(name, "brightness"))) {
+		fprintf(stderr, "socket-hardware: ignoring invalid level request\n");
+		return;
+	}
+	volume = !strcmp(name, "volume");
+	if (volume) ok = value >= 0 && value <= 100 && value % 5 == 0 && !publish_controls(value, 1);
+	else {
+		ok = value >= 1 && value <= 10 && !set_brightness(value);
+		// Publish an applied brightness, so the panel and the game agree.
+		if (ok) ok = !publish_controls(volume_level, 2);
+	}
+	snprintf(reply, sizeof(reply), "%s %s %d\n", token, ok ? "ok" : "error", volume ? volume_level : brightness_step);
+	publish_text("controls.ack", reply);
+}
+
+// settings.open holds "<epoch> <count>": the number of launcher MENU presses
+// since the last discard. Each discard starts a new, larger epoch with count 0.
+// The frontend only reads the file. It toggles Device Settings one time for
+// each press that it has not counted, so no press is lost or used two times.
+static uint64_t settings_epoch;
+static unsigned settings_presses;
+
+// Presses from before startup or sleep must not toggle Device Settings later.
+static void discard_settings_presses(void) {
+	uint64_t now = millis();
+	settings_epoch = now > settings_epoch ? now : settings_epoch + 1;
+	settings_presses = 0;
+	remove_run_file("settings.open");
 }
 
 static int pad_button(unsigned short code) {
@@ -290,6 +363,10 @@ static void action(enum ControlAction what, unsigned short type, unsigned short 
 		if (next < 0) next = 0;
 		if (next > 100) next = 100;
 		publish_controls(next, 1);
+	} else if (what == SETTINGS) {
+		char text[40];
+		snprintf(text, sizeof(text), "%llu %u\n", (unsigned long long)settings_epoch, ++settings_presses);
+		publish_text("settings.open", text);
 	} else if (what == SLEEP) {
 		sleep_requested = type == EV_SW && code == SW_LID ? LID_SLEEP : POWER_SLEEP;
 	} else if (what == SHUTDOWN) {
@@ -633,6 +710,7 @@ resume:
 			if (ev.type == EV_KEY && ev.code == KEY_POWER && ev.value == 0) wake.power = 0;
 		}
 	}
+	discard_settings_presses();
 	memset(&controls, 0, sizeof(controls));
 	controls.power = wake.power ? 2 : 0;
 	controls.power_at = wake.power_at;
@@ -705,6 +783,10 @@ int main(void) {
 		usleep(10000);
 	}
 	if (!ready) { fprintf(stderr, "socket-hardware: virtual gamepad did not appear\n"); goto cleanup; }
+	// Requests from an earlier helper are stale.
+	discard_settings_presses();
+	remove_run_file("controls.set");
+	remove_run_file("controls.ack");
 	if (publish_controls(volume_level, 0)) goto cleanup;
 	snprintf(path, sizeof(path), "%s/hardware.ready", run_dir);
 	FILE *f = fopen(path, "w");
@@ -714,6 +796,8 @@ int main(void) {
 	result = 0;
 	while (running) {
 		if (poll(inputs, input_count, 20) < 0 && errno != EINTR) { perror("socket-hardware: poll"); result = 1; break; }
+		// A game keeps its own MENU and SELECT behavior.
+		controls.launcher = !active_game();
 		for (int i = 0; i < input_count && running; i++) {
 			if (inputs[i].revents & (POLLERR | POLLHUP | POLLNVAL)) { result = 1; running = 0; break; }
 			struct input_event ev;
@@ -724,6 +808,7 @@ int main(void) {
 		forward(EV_SYN, SYN_REPORT, 0);
 		check_lid();
 		controls_tick(&controls, millis(), action);
+		level_request();
 		if (settings_due && millis() >= settings_due) save_settings();
 		if (sleep_requested && running) suspend_device();
 	}
@@ -734,6 +819,7 @@ cleanup:
 	unlink(path);
 	snprintf(path, sizeof(path), "%s/controls", run_dir);
 	unlink(path);
+	remove_run_file("settings.open");
 	if (virtual_pad >= 0) { ioctl(virtual_pad, UI_DEV_DESTROY); close(virtual_pad); }
 	for (int i = 0; i < input_count; i++) close(inputs[i].fd);
 	close(lock);

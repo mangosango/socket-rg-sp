@@ -1,0 +1,31 @@
+--- a/gfx/common/gl2_common.h
++++ b/gfx/common/gl2_common.h
+@@ -209,6 +209,7 @@
+    int version_minor;
+ 
+    GLuint socket_white;
++   GLuint socket_overlay;
+    GLuint tex_mag_filter;
+    GLuint tex_min_filter;
+    GLuint fbo_feedback;
+--- a/gfx/drivers/gl2.c
++++ b/gfx/drivers/gl2.c
+@@ -3391,7 +3391,8 @@
+    bool hud;
+    socket_controls_poll(&controls, now);
+    age = now - controls.shown_at;
+-   hud = controls.shown_at && age < 1500000;
++   /* The launcher scene shows the levels itself. */
++   hud = controls.shown_at && age < 1500000 && !socket_quick_menu_overlay();
+    if (!hud && !controls.temperature)
+       return;
+    /* One white texture per GL context serves every solid quad and the tint. */
+@@ -3899,6 +3900,8 @@
+ 
+    if (gl->socket_white)
+       glDeleteTextures(1, &gl->socket_white);
++   if (gl->socket_overlay)
++      glDeleteTextures(1, &gl->socket_overlay);
+ 
+ #ifdef HAVE_OVERLAY
+    gl2_free_overlay(gl);

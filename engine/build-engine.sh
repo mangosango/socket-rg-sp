@@ -32,3 +32,7 @@ docker run --rm --platform linux/arm64 -v "$HERE":/src:ro -v "$WORK":/out socket
 	cc -std=c11 -Os -Wall -Wextra -Werror -I/out/godot/thirdparty/mbedtls/include \
 	/src/wifi-config.c /out/godot/bin/obj/modules/libmodule_mbedtls.linuxbsd.template_release.arm64.a \
 	-Wl,--gc-sections -s -o /out/socket-wifi-config
+
+# Use the BaseOS system bus to pair only the accessory selected in Socket.
+docker run --rm --platform linux/arm64 -v "$HERE":/src:ro -v "$WORK":/out socket-baseos-godot \
+	sh -ec 'cc -std=c11 -D_POSIX_C_SOURCE=200809L -Os -Wall -Wextra -Werror /src/bluetooth-agent.c $(pkg-config --cflags --libs dbus-1) -s -o /out/socket-bluetooth-agent'

@@ -85,8 +85,8 @@ Error DisplayServerFbdev::_init_egl() {
 	gladLoaderLoadEGL(egl_display);
 	ERR_FAIL_COND_V_MSG(!eglBindAPI(EGL_OPENGL_ES_API), ERR_CANT_CREATE, "fbdev: eglBindAPI failed.");
 
-	const EGLint config_attribs[] = {
-		EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+	EGLint config_attribs[] = {
+		EGL_SURFACE_TYPE, EGL_WINDOW_BIT | EGL_PBUFFER_BIT,
 		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT_KHR,
 		EGL_RED_SIZE, 8,
 		EGL_GREEN_SIZE, 8,
@@ -96,7 +96,13 @@ Error DisplayServerFbdev::_init_egl() {
 	};
 	EGLConfig config = nullptr;
 	EGLint found = 0;
-	ERR_FAIL_COND_V_MSG(!eglChooseConfig(egl_display, config_attribs, &config, 1, &found) || found == 0, ERR_CANT_CREATE, "fbdev: no GLES3 window config with RGB888 and 24-bit depth.");
+	if (!eglChooseConfig(egl_display, config_attribs, &config, 1, &found) || found == 0) {
+		config_attribs[1] = EGL_WINDOW_BIT;
+		ERR_FAIL_COND_V_MSG(!eglChooseConfig(egl_display, config_attribs, &config, 1, &found) || found == 0, ERR_CANT_CREATE, "fbdev: no GLES3 window config with RGB888 and 24-bit depth.");
+	} else {
+		const EGLint small[] = { EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE };
+		overlay_surface = eglCreatePbufferSurface(egl_display, config, small);
+	}
 	egl_config = config;
 
 	egl_surface = eglCreateWindowSurface(egl_display, config, (EGLNativeWindowType)&native_window, nullptr);
@@ -209,7 +215,12 @@ void DisplayServerFbdev::window_set_mode(DisplayServerEnums::WindowMode p_mode, 
 	// The launcher uses the Safe render mode, so EGL stays on this thread.
 	RenderingServer::get_singleton()->sync();
 	if (suspend) {
-		ERR_FAIL_COND_MSG(!eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT), "fbdev: cannot release the display for the game.");
+		// Retain the renderer for explicit SubViewport draws while the game owns the panel.
+		bool overlay_ready = overlay_surface != EGL_NO_SURFACE && eglMakeCurrent(egl_display, overlay_surface, overlay_surface, egl_context);
+		if (!overlay_ready) {
+			ERR_FAIL_COND_MSG(!eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT), "fbdev: cannot release the display for the game.");
+		}
+		OS::get_singleton()->set_environment("SOCKET_GAME_OVERLAY_EGL", overlay_ready ? "1" : "0");
 		if (!eglDestroySurface(egl_display, egl_surface)) {
 			eglMakeCurrent(egl_display, egl_surface, egl_surface, egl_context);
 			ERR_FAIL_MSG("fbdev: cannot release the window surface.");
@@ -261,7 +272,10 @@ void DisplayServerFbdev::release_rendering_thread() {
 }
 
 void DisplayServerFbdev::gl_window_make_current(DisplayServerEnums::WindowID p_window_id) {
-	eglMakeCurrent(egl_display, egl_surface, egl_surface, egl_context);
+	EGLSurface surface = minimized ? overlay_surface : egl_surface;
+	if (surface != EGL_NO_SURFACE) {
+		eglMakeCurrent(egl_display, surface, surface, egl_context);
+	}
 }
 
 void DisplayServerFbdev::swap_buffers() {
@@ -291,6 +305,9 @@ DisplayServerFbdev::~DisplayServerFbdev() {
 		}
 		if (egl_surface != EGL_NO_SURFACE) {
 			eglDestroySurface(egl_display, egl_surface);
+		}
+		if (overlay_surface != EGL_NO_SURFACE) {
+			eglDestroySurface(egl_display, overlay_surface);
 		}
 		eglTerminate(egl_display);
 	}

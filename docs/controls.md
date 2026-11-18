@@ -3,6 +3,23 @@
 In Socket, the RG SP buttons work as labeled. For the game menu and
 RetroArch buttons, see [RetroArch](retroarch.md).
 
+## Device Settings
+
+Tap **MENU** to open Device Settings. Tap it again on any settings page
+to close the menu. Close any open file picker first. Use the D-pad to select
+a row. Left and Right change brightness or volume. A opens a radio page,
+and B goes back. The hardware volume buttons also work while the panel is open.
+
+- **Wi-Fi** can scan for WPA2-Personal networks or join a hidden network by name. Use the
+  controller keyboard to enter the password. A successful join saves the
+  profile for the next boot. Switching Wi-Fi off keeps the saved profile.
+- **Bluetooth** can find, pair and connect nearby accessories. Put the
+  accessory in pairing mode, select it on the handheld, and follow the
+  prompt for its code if one appears. Open a paired accessory to reconnect,
+  disconnect or forget it. If Bluetooth cannot turn on, the page shows
+  which step failed. The card keeps the startup details in
+  `Logs/socket-bluetooth.log`.
+
 ## Volume
 
 - Socket and RetroArch share one volume level, controlled by the volume

@@ -70,10 +70,12 @@ An on-device scan loads cached media and downloads missing artwork when Wi-Fi is
 
 ## Connect to Wi-Fi and enable RetroAchievements
 
-1. On the frontend card, copy `Config/wifi.txt.example` to `Config/wifi.txt`.
-   Enter your WPA2-Personal network name in `ssid` and its password in `psk`.
-   Use the values as plain text. The network must supply an address through DHCP.
-2. Boot Socket and wait for the Wi-Fi indicator. Open the platform editor,
+1. In Socket, press **MENU**. Open **Wi-Fi**, choose your network
+   or enter its name, type its password with the controller, then select **Join**.
+   Socket saves one WPA2-Personal network. The network must supply an address
+   through DHCP. You can also copy `Config/wifi.txt.example` to
+   `Config/wifi.txt` on the card and enter the name and password there.
+2. Wait for the Wi-Fi indicator. Open the platform editor,
    select a ROM folder, and choose **Scan**. Test with a game that has no cover.
    A downloaded cover stays on the card for offline use.
 3. For in-game achievements, copy `Config/retroachievements.txt.example` to
@@ -90,8 +92,8 @@ Achievements use softcore mode so rewind, save states and resume work. An
 offline launch still starts the game. Relaunch it after Wi-Fi connects to
 start an achievement session. Reconnect before quitting if the connection
 drops during a session. Remove `Config/retroachievements.txt` to disable
-gameplay achievements. Remove `Config/wifi.txt` and restart to disable
-automatic connection. Treat the card and its backups as private because they
+gameplay achievements. To remove the saved Wi-Fi credentials, use **Forget**
+in Device Settings. Treat the card and its backups as private because they
 can contain Wi-Fi and account credentials.
 
 ## Prepare the library (macOS only)
@@ -154,7 +156,7 @@ run the command again. Downloads need `curl` 8.4 or later.
 | SELECT + Left or Right | Change the screen temperature. Right makes the screen warmer. |
 | POWER, or close the lid | Sleep. In a game, the device first saves a resume state. |
 | Hold POWER for 1 second | Shut down. In a game, the device first saves a resume state. |
-| MENU (in a game) | Open the game menu: save and load states, settings, and Save & Exit. |
+| Tap MENU | Open or close Device Settings. In a game, choose **Game** for emulator controls or **Cheats** for cheat codes. |
 | Hold MENU for 1 second (in a game) | Save a state and go back to Socket. |
 | Hold L2 or R2 (in a game) | Rewind or fast-forward. |
 

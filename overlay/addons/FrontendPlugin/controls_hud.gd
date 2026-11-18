@@ -14,6 +14,8 @@ var _shown_at: int = -1500
 var _poll_at: int = 0
 var _path: String
 var _window_size: Vector2i
+# Device Settings shows the levels itself. Set quiet to keep the bar hidden.
+var quiet: bool = false
 
 
 func _ready() -> void:
@@ -93,7 +95,7 @@ func _poll(show_change: bool = true) -> void:
 	_tint.queue_redraw()
 	_kind = kind
 	AudioServer.set_bus_volume_linear(0, pow(float(volume) / 100.0, 2.0))
-	if show_change and not initial and kind != 0:
+	if show_change and not quiet and not initial and kind != 0:
 		_shown_at = Time.get_ticks_msec()
 		_view.queue_redraw()
 

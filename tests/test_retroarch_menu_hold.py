@@ -1,5 +1,6 @@
 """Compile the patched RetroArch paths with controlled input and file errors."""
 
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -8,7 +9,8 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "work/RetroArch"
+# Set SOCKET_RETROARCH_SOURCE to test a RetroArch tree outside work/.
+SOURCE = Path(os.environ.get("SOCKET_RETROARCH_SOURCE") or ROOT / "work/RetroArch")
 
 
 def function(source, signature):
@@ -66,6 +68,7 @@ static runloop_state_t runloop_data = { { "game.state" }, 1, 1 };
 static struct { int flags, input_driver_flushing_input; } menu_data;
 static struct { int flags; } input_data;
 static struct { bool failed; } socket_sleep;
+static struct { bool active; } socket_menu;
 static int failure, saves, quits, warnings, waited, supports = 1;
 static size_t strlcpy(char *out, const char *in, size_t size) {
  size_t len = strlen(in); if (size) { size_t n = len < size-1 ? len : size-1; memcpy(out,in,n); out[n]=0; } return len;
@@ -160,11 +163,16 @@ int main(void) {
  now+=2000000; tick(true,now); tick(true,now+999999); assert(!quits);
  tick(true,now+1000000); assert(quits==1); assert_state("new-state");
  tick(true,now+2000000); tick(false,now+2000001); assert(quits==1 && !menu_data.flags);
+ /* In the Socket menu, a hold does not exit. The release closes the menu. */
+ socket_menu.active=true; menu_data.flags=1;
+ now+=3000000; tick(true,now); tick(true,now+1000000); assert(quits==1);
+ tick(false,now+1000001); assert(quits==1 && !menu_data.flags);
+ socket_menu.active=false;
  /* A failed boot restore exits without saving over a good automatic state. */
- socket_sleep.failed=true;
+ socket_sleep.failed=true; socket_menu.active=true;
  { int previous=saves; now+=3000000; tick(true,now); tick(true,now+1000000);
    tick(false,now+1000001); assert(quits==2 && saves==previous); }
- socket_sleep.failed=false;
+ socket_sleep.failed=false; socket_menu.active=false;
  /* Holding MENU without a game cannot save or quit. */
  runloop_data.current_core_type=CORE_TYPE_DUMMY;
  now+=3000000; tick(true,now); tick(true,now+1000000); tick(false,now+1000001);

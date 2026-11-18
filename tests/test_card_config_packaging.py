@@ -16,7 +16,7 @@ class CardBuildTests(unittest.TestCase):
                 script.parent.mkdir(exist_ok=True)
                 script.write_text("exit 0\n")
             for artifact in ("work/godot/bin/godot.linuxbsd.template_release.arm64", "work/socket-hardware",
-                             "work/socket-wifi-config", "work/RetroArch/retroarch"):
+                             "work/socket-wifi-config", "work/socket-bluetooth-agent", "work/RetroArch/retroarch"):
                 path = build / artifact
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.touch()

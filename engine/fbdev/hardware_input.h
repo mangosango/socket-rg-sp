@@ -3,13 +3,21 @@
 #include <linux/input.h>
 #include <stdint.h>
 
+#define PAD_MENU 0x138
+
 // SELECT is delayed until another game key or release identifies its use.
+// In the launcher, each MENU press toggles Device Settings. The launcher gets
+// no part of that press. A game gets MENU directly.
+// menu is 1 while a MENU press that the launcher used is down. Its release is
+// not forwarded, also when a game starts before the release.
+// The caller sets launcher to 1 while no game owns the input.
 struct Controls {
 	int select, chord, select_sent, vertical, blocked_vertical, horizontal, blocked_horizontal, volume, power;
+	int launcher, menu;
 	uint64_t power_at, repeat_at, select_at, release_at;
 };
 
-enum ControlAction { FORWARD, BRIGHTNESS, VOLUME, SLEEP, SHUTDOWN, RESET, TEMPERATURE };
+enum ControlAction { FORWARD, BRIGHTNESS, VOLUME, SLEEP, SHUTDOWN, RESET, TEMPERATURE, SETTINGS };
 typedef void (*ControlSink)(enum ControlAction, unsigned short, unsigned short, int);
 
 static void controls_tick(struct Controls *s, uint64_t now, ControlSink sink) {
@@ -59,6 +67,16 @@ static void controls_event(struct Controls *s, unsigned short type, unsigned sho
 		} else if (value == 0 && s->volume == (code == KEY_VOLUMEUP ? 1 : -1)) {
 			s->volume = 0;
 		}
+		return;
+	}
+	// A game gets MENU directly. A release with no tracked press is forwarded,
+	// because the press can be from a game that has just stopped.
+	if (type == EV_KEY && code == PAD_MENU && (s->menu || (s->launcher && value == 1))) {
+		if (value == 1 && !s->menu) {
+			s->menu = 1;
+			sink(SETTINGS, 0, 0, 0);
+		} else if (value == 0) s->menu = 0;
+		// Kernel repeats and a second press of a tracked press do nothing.
 		return;
 	}
 	if (type == EV_KEY && code == 0x136) {
@@ -112,8 +130,8 @@ static void controls_event(struct Controls *s, unsigned short type, unsigned sho
 			return;
 		}
 	}
-	if (s->select && !s->chord && !s->select_sent &&
-			((type == EV_KEY && value == 1) || (type == EV_ABS && value))) {
+	int press = (type == EV_KEY && value == 1) || (type == EV_ABS && value);
+	if (s->select && !s->chord && !s->select_sent && press) {
 		sink(FORWARD, EV_KEY, 0x136, 1);
 		s->select_sent = 1;
 	}

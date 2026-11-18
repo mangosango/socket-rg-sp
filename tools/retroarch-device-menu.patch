@@ -1,0 +1,92 @@
+--- a/runloop.c
++++ b/runloop.c
+@@ -6030,7 +6030,10 @@
+          hold_handled = false;
+       }
+       old_held = held;
++      /* In the Socket menu, MENU only closes the menu. A hold exits from the
++       * game, and from the menu after a failed resume. */
+       if (held && !hold_handled && !core_type_is_dummy
++            && (!socket_menu.active || socket_sleep.failed)
+             && current_time - pressed_at >= 1000000)
+       {
+          hold_handled = true;
+--- a/gfx/drivers/gl2.c
++++ b/gfx/drivers/gl2.c
+@@ -3452,74 +3452,8 @@
+    gl->shader->set_mvp(gl->shader_data, &gl->mvp);
+ }
+ 
+-
+-static void gl2_socket_menu_text(gl2_t *gl, const char *text, float y, float scale)
+-{
+-   struct font_params params = {0};
+-   params.x = 60.0f / 720.0f;
+-   params.y = 1.0f - y / 480.0f;
+-   params.scale = scale;
+-   params.color = 0xffffffff;
+-   params.full_screen = true;
+-   font_driver_render_msg(gl, text, &params, NULL);
+-}
+-
+-static void gl2_socket_menu(gl2_t *gl)
+-{
+-   const unsigned char white[] = {255, 255, 255, 255};
+-   GLuint texture;
+-   unsigned row, count, selected, first;
+-   float x = gl->video_width / 720.0f;
+-   float y = gl->video_height / 480.0f;
+-   float font_size = config_get_ptr()->floats.video_font_size;
+-   float scale = 22.0f * y / (font_size > 0 ? font_size : 32.0f);
+-   GLint viewport[4], previous_texture;
+-   GLboolean blend;
+-   char text[512];
+-   if (!socket_quick_menu_active()) return;
+-   count = socket_quick_menu_count();
+-   selected = socket_quick_menu_selection();
+-   first = selected >= 10 ? selected - 9 : 0;
+-   glGetIntegerv(GL_VIEWPORT, viewport);
+-   glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous_texture);
+-   blend = glIsEnabled(GL_BLEND);
+-   gl->shader->use(gl, gl->shader_data, VIDEO_SHADER_STOCK_BLEND, true);
+-   glViewport(0, 0, gl->video_width, gl->video_height);
+-   glEnable(GL_BLEND);
+-   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+-   glBlendEquation(GL_FUNC_ADD);
+-   glGenTextures(1, &texture);
+-   glBindTexture(GL_TEXTURE_2D, texture);
+-   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+-   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+-   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
+-   gl2_socket_quad(gl, texture, 0, 0, gl->video_width, gl->video_height,
+-         0, 0, 0, .96f);
+-   gl2_socket_quad(gl, texture, 44*x, (99+(selected-first)*30)*y, 632*x, 29*y, 1, 1, 1, 1);
+-   gl2_socket_quad(gl, texture, 46*x, (101+(selected-first)*30)*y, 628*x, 25*y,
+-         0, 0, 0, 1);
+-   glDeleteTextures(1, &texture);
+-   glBindTexture(GL_TEXTURE_2D, previous_texture);
+-   if (!blend) glDisable(GL_BLEND);
+-   glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+-   gl->shader->set_coords(gl->shader_data, &gl->coords);
+-   gl->shader->set_mvp(gl->shader_data, &gl->mvp);
+-   gl2_socket_menu_text(gl, socket_quick_menu_title(), 76, scale * 1.5f);
+-   for (row = first; row < count && row < first + 10; row++)
+-   {
+-      size_t length;
+-      socket_quick_menu_label(row, text, sizeof(text));
+-      length = strlen(text);
+-      while (length && font_driver_get_message_width(NULL, text, length, scale) > 595*x)
+-      {
+-         do { length--; } while (length && ((unsigned char)text[length] & 0xc0) == 0x80);
+-         text[length] = '\0';
+-      }
+-      gl2_socket_menu_text(gl, text, 120+(row-first)*30, scale);
+-   }
+-   gl2_socket_menu_text(gl, socket_quick_menu_status(), 430, scale * .5f);
+-   gl2_socket_menu_text(gl, "A  Select    B  Back    Left / Right  Change", 458, scale * .5f);
+-}
++#define SOCKET_QUICK_MENU_GL2
++#include "../../socket_quick_menu.h"
+ 
+ static void gl2_pbo_async_readback(gl2_t *gl)
+ {
