@@ -30,7 +30,12 @@ class ShaderStartupContracts(unittest.TestCase):
         self.assertIn("seen.has(key)", source)
         self.assertIn("seen[key] = true", source)
         self.assertNotIn("added_platforms", source)
-        for disk_api in ("FileAccess.", "DirAccess.", "ResourceSaver.", "OS.execute("):
+        self.assertIn('"user://shader_cache/SceneShaderGLES3"', source)
+        self.assertIn('binary.ends_with(".cache")', source)
+        cached = source.split('if _has_scene_cache():', 1)[1].split('var startup =', 1)[0]
+        self.assertIn('"socket_shader_startup_complete", true', cached)
+        self.assertIn('return', cached)
+        for disk_api in ("FileAccess.", "ResourceSaver.", "OS.execute("):
             self.assertNotIn(disk_api, source, "warmup must not delete cache or save a done marker")
 
     def test_status_uses_palette_and_native_scaling_not_hardware_brightness(self):

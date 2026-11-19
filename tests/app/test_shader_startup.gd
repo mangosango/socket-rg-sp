@@ -18,6 +18,15 @@ func _run() -> void:
 	if helper == null or not helper.can_instantiate():
 		quit(1)
 		return
+	var cache := "user://shader_cache/SceneShaderGLES3/test"
+	check(not helper._has_scene_cache(), "empty test home takes cold path")
+	DirAccess.make_dir_recursive_absolute(cache)
+	check(not helper._has_scene_cache(), "empty shader directory is not a cached scene")
+	var binary := FileAccess.open(cache + "/variant.cache", FileAccess.WRITE)
+	binary.store_32(1)
+	binary.close()
+	check(helper._has_scene_cache(), "scene binary selects fast startup")
+	DirAccess.remove_absolute(cache + "/variant.cache")
 	var main := Node.new()
 	root.add_child(main)
 	main.process_mode = Node.PROCESS_MODE_PAUSABLE

@@ -110,7 +110,7 @@ func _run() -> void:
 	# MENU: the panel of the launcher, with the game rows. Game has the focus.
 	await send("session 77-1 2\nopen 1\n", 0.6)
 	var panel: Node = root.get_node("DeviceSettings")
-	assert(panel.game and panel._rows.keys() == ["Brightness", "Volume", "Wi-Fi", "Bluetooth", "Game", "Cheats"])
+	assert(panel.game and panel._rows.keys() == ["Brightness", "Volume", "Wi-Fi", "Bluetooth", "Game", "Cheats", "Emulation"])
 	assert(panel._gui.gui_get_focus_owner().name == "Game")
 	assert(OS.low_processor_usage_mode_sleep_usec == overlay.MENU_USEC)
 	var first := frame()

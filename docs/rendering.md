@@ -45,9 +45,9 @@ and label styles are drawn using the
 main carousel's camera, lights and rendering target. This also runs with an empty
 library, without changing saved games or appearance settings.
 
-The warmup replays on each app start, reusing Godot's persistent shader cache.
-There is no permanent "first boot completed" flag: shader/engine/driver changes
-or a cleared cache must not silently skip preparation. A cold cache takes longer;
+The full warmup only runs when no GLES scene shader binaries are present. On a
+cached launch Socket skips the status screen and synthetic draws; Godot still
+validates binaries and compiles missing or stale variants when used. A cold cache takes longer;
 compilation can freeze the status screen briefly between variants. The
 animation cannot move during a synchronous GLES compile. Cached-boot duration
 for the new renderer still needs measurement on the RG SP. Do not clear the existing

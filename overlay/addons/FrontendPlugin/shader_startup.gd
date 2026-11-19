@@ -1,7 +1,6 @@
 extends CanvasLayer
 
-# Replay real draws each process start: a marker cannot validate a driver's cache.
-# Godot persists GLES program binaries in user://shader_cache (source/GPU keyed).
+# Godot validates program binaries and compiles any missing variants on demand.
 var _main: Node
 var _tree: SceneTree
 var _paused: bool
@@ -32,12 +31,26 @@ const PRESENT_USEC := 50000
 # A smaller model fills fewer pixels. Shader variants do not depend on its size.
 const FILL_SCALE := 0.5
 
+static func _has_scene_cache() -> bool:
+	var scenes := "user://shader_cache/SceneShaderGLES3"
+	if not DirAccess.dir_exists_absolute(scenes):
+		return false
+	for variant in DirAccess.get_directories_at(scenes):
+		for binary in DirAccess.get_files_at(scenes.path_join(variant)):
+			if binary.ends_with(".cache"):
+				return true
+	return false
+
 static func run(main: Node) -> void:
 	var tree := main.get_tree()
 	if tree.root.get_meta("socket_shader_startup_complete", false):
 		return
 	if DisplayServer.get_name() == "headless":
 		tree.root.set_meta("socket_shader_startup_complete", true)
+		return
+	if _has_scene_cache():
+		tree.root.set_meta("socket_shader_startup_complete", true)
+		tree.root.set_meta("socket_shader_startup_stats", {"draws": 0, "warmup_ms": 0, "first_input_ms": Time.get_ticks_msec()})
 		return
 	var startup = load("res://addons/FrontendPlugin/shader_startup.gd").new()
 	startup._main = main

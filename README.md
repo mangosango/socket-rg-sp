@@ -67,12 +67,13 @@ An on-device scan loads cached media and downloads missing artwork when Wi-Fi is
 2. Wait for the Wi-Fi indicator. Open the platform editor,
    select a ROM folder, and choose **Scan**. Test with a game that has no cover.
    A downloaded cover stays on the card for offline use.
-3. For in-game achievements, copy `Config/retroachievements.txt.example` to
-   `Config/retroachievements.txt`. Fill in your RetroAchievements `username`
-   and `password`. Launch a supported GB, GBC or GBA game with **mGBA** while
-   connected. The first successful sign-in replaces the password with a login
-   token. If the token expires, replace the file with a fresh copy of the
-   example and enter your credentials again.
+3. In the launcher or during a game, open **MENU → Emulation → Set username and password**.
+   Enter your RetroAchievements login and choose **Save account**. Check that
+   **RetroAchievements** is **On**, then launch a supported GB, GBC or GBA game
+   with **mGBA** while connected. Changes take effect on the next launch. The
+   first successful sign-in replaces the password on the card with a token.
+   To switch accounts or replace an expired token, use the same form. Manual
+   setup via `Config/retroachievements.txt.example` is still supported.
 4. For progress and badges in Socket's achievement panel, enter your username
    and RetroAchievements **Web API key** in the panel. The gameplay login token
    and the Web API key have different purposes.
@@ -80,10 +81,14 @@ An on-device scan loads cached media and downloads missing artwork when Wi-Fi is
 Achievements use softcore mode so rewind, save states and resume work. An
 offline launch still starts the game. Relaunch it after Wi-Fi connects to
 start an achievement session. Reconnect before quitting if the connection
-drops during a session. Remove `Config/retroachievements.txt` to disable
-gameplay achievements. To remove the saved Wi-Fi credentials, use **Forget**
+drops during a session. Switch **RetroAchievements** off to disable gameplay
+achievements without deleting the saved login. To remove the saved Wi-Fi credentials, use **Forget**
 in Device Settings. Treat the card and its backups as private because they
 can contain Wi-Fi and account credentials.
+
+Set rewind separately for GB, GBC and GBA in **MENU → Emulation** in the
+launcher. During a game, **MENU → Game → Gameplay → Rewind** applies immediately
+and saves the preference for the current platform.
 
 ## Prepare the library (macOS only)
 

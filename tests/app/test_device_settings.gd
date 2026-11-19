@@ -212,6 +212,41 @@ func _run() -> void:
 	focus = panel._gui.gui_get_focus_owner()
 	assert(focus.name == "Wi-Fi")
 	await tap("ui_down")
+	assert(panel._gui.gui_get_focus_owner().name == "Emulation")
+	await tap("ui_accept")
+	var emu = panel._sub
+	emu.card = run_dir
+	DirAccess.make_dir_recursive_absolute(run_dir.path_join("Config"))
+	emu._toggle_account()
+	assert(emu._view == "form" and emu._psk.secret)
+	emu._ssid.text = "tester"
+	emu._psk.text = "a=b"
+	emu._save_account()
+	var account := run_dir.path_join("Config/retroachievements.txt")
+	assert(FileAccess.get_file_as_string(account) == "username = tester\npassword = a=b\n" and emu._psk.text.is_empty())
+	emu._toggle_account()
+	assert(FileAccess.file_exists(account + ".off"))
+	emu._edit_account()
+	emu._ssid.text = "invalid\nname"
+	emu._psk.text = "invalid"
+	emu._save_account()
+	assert(emu._view == "form" and FileAccess.get_file_as_string(account).contains("tester"))
+	emu.go_back()
+	emu._toggle_account()
+	assert(not FileAccess.file_exists(account + ".off"))
+	var gba := run_dir.path_join("Saves/socket/retroarch/gba.cfg")
+	DirAccess.make_dir_recursive_absolute(gba.get_base_dir())
+	var prefs := FileAccess.open(gba, FileAccess.WRITE)
+	prefs.store_string('video_shader_enable = "false"\n')
+	prefs.close()
+	emu._render()
+	for row in emu.get_children():
+		if row is Button and row.text == "GBA rewind":
+			row.pressed.emit()
+	assert(FileAccess.get_file_as_string(gba) == 'video_shader_enable = "false"\nrewind_enable = "false"\n')
+	emu.go_back()
+	await wait(0.08)
+	await tap("ui_up")
 	assert(panel._gui.gui_get_focus_owner() == focus)
 	# Physical A, B and D-pad events reach the panel and not the launcher.
 	# The fbdev display server sends button 0 for A and button 1 for B.
@@ -394,7 +429,7 @@ func _run() -> void:
 	root.add_child(settings)
 	await menu()
 	panel = root.get_node("DeviceSettings")
-	assert(panel._rows.keys() == ["Brightness", "Volume", "Wi-Fi", "Bluetooth", "Cartridge edge smoothing"])
+	assert(panel._rows.keys() == ["Brightness", "Volume", "Wi-Fi", "Bluetooth", "Cartridge edge smoothing", "Emulation"])
 	for index in 3:
 		await tap("ui_down")
 	focus = panel._gui.gui_get_focus_owner()
@@ -432,7 +467,7 @@ func _run() -> void:
 	assert(panel._rows["Cartridge edge smoothing"].disabled and panel._rows["Cartridge edge smoothing"].get_node("Side/Value").text == "Off")
 	for index in 4:
 		await tap("ui_down")
-	assert(panel._gui.gui_get_focus_owner().name == "Wi-Fi")
+	assert(panel._gui.gui_get_focus_owner().name == "Emulation")
 	await tap("ui_accept")
 	await button(JOY_BUTTON_B, true)
 	await button(JOY_BUTTON_B, false)
@@ -446,7 +481,7 @@ func _run() -> void:
 	game_panel.game = true
 	root.add_child(game_panel)
 	await wait(0.2)
-	assert(game_panel._rows.keys() == ["Brightness", "Volume", "Wi-Fi", "Bluetooth", "Game", "Cheats"])
+	assert(game_panel._rows.keys() == ["Brightness", "Volume", "Wi-Fi", "Bluetooth", "Game", "Cheats", "Emulation"])
 	assert(game_panel._gui.gui_get_focus_owner().name == "Game")
 	var card: Rect2 = game_panel._card.get_global_rect()
 	print("Device Settings game card: %s of %s" % [card, game_panel._logical])

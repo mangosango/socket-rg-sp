@@ -145,7 +145,7 @@ func _run() -> void:
 
 	root.get_node("FrontendBridge").open_device_settings()
 	panel = root.get_node("DeviceSettings")
-	if not require(panel._rows.keys() == ["Brightness", "Volume", "Wi-Fi", "Bluetooth", "Cartridge edge smoothing"], "launcher menu has five device settings"): return
+	if not require(panel._rows.keys() == ["Brightness", "Volume", "Wi-Fi", "Bluetooth", "Cartridge edge smoothing", "Emulation"], "launcher menu has five device settings"): return
 	if not require(panel._card.size.y <= panel._logical.y, "the launcher menu is on the display"): return
 	var image := await shot("root")
 	var gui: SubViewport = panel._gui

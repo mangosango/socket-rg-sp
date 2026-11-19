@@ -46,6 +46,7 @@ signal closed
 signal game_event(word: String)
 
 const RADIOS := {
+	"Emulation": "res://addons/FrontendPlugin/emulation_settings.gd",
 	"Wi-Fi": "res://addons/FrontendPlugin/wifi_settings.gd",
 	"Bluetooth": "res://addons/FrontendPlugin/bluetooth_settings.gd",
 }
@@ -231,6 +232,7 @@ func _build() -> void:
 		_settings = get_node_or_null("/root/SettingsManager")
 		if _settings != null and _settings.has_method("cartridge_msaa_mode"):
 			rows.append(MSAA)
+	rows.append("Emulation")
 	for row_name in rows:
 		_list.add_child(_row(row_name))
 	layout.add_child(_hint())
@@ -574,6 +576,8 @@ func _open_radio(row: Button) -> void:
 	if _sub != null:
 		return
 	_sub = load(RADIOS[row.name]).new()
+	if row.name == &"Emulation":
+		_sub.game = game
 	_sub_row = row
 	if "row_style" in _sub:
 		_sub.row_style = _style_radio_row
@@ -621,6 +625,7 @@ func _focus_radio() -> void:
 func _close_radio() -> void:
 	if _sub == null:
 		return
+	_scroll.hide()
 	_scroll.queue_free()
 	_sub = null
 	_title.text = TITLE

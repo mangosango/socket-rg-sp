@@ -82,6 +82,13 @@ case "$1:${3:-}" in
 		fi
 		merge_options "$run/retroarch-core-options.cfg" || exit 1
 		cat "$SYS/retroarch/$3.cfg" > "$run/retroarch.cfg" || exit 1
+		account="$SYS/../../Config/retroachievements.txt"
+		# Online mGBA snapshots serialize achievement progress as well as core memory.
+		achievements=false
+		if [ "$1" = mgba ] && [ -f "$account" ] && [ ! -f "$account.off" ]; then achievements=true; fi
+		if [ "$achievements" = true ] && [ -f "$run/wifi.ready" ]; then
+			printf '%s\n' 'rewind_granularity = "12"' >> "$run/retroarch.cfg" || exit 1
+		fi
 		if [ -f "$SOCKET_MENU_CONFIG" ]; then
 			cat "$SOCKET_MENU_CONFIG" >> "$run/retroarch.cfg" || exit 1
 		fi
@@ -89,8 +96,7 @@ case "$1:${3:-}" in
 		if [ "${SOCKET_RESUME_LOAD:-0}" = 1 ]; then
 			printf 'savestate_auto_load = "false"\n' >> "$run/retroarch.cfg" || exit 1
 		fi
-		account="$SYS/../../Config/retroachievements.txt"
-		if [ "$1" = mgba ] && [ -f "$account" ]; then
+		if [ "$achievements" = true ]; then
 			export SOCKET_ACHIEVEMENTS_FILE="$account"
 			export SOCKET_WIFI_READY="$run/wifi.ready"
 			printf '%s\n' 'cheevos_enable = "true"' 'cheevos_hardcore_mode_enable = "false"' >> "$run/retroarch.cfg" || exit 1

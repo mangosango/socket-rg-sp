@@ -79,7 +79,7 @@ rewind, and 4x fast-forward with sound.
   frames only during fast-forward.
 - Saved core options keep their frame skip value.
 - The DMG Game Boy profile does not skip frames.
-- Rewind records every second frame, as in Slot.
+- Rewind records every second frame, as in Slot. With an achievement account and Wi-Fi ready, mGBA defaults to every twelfth frame: snapshots include achievement progress. Unlock checks still run every frame; only rewind is coarser.
 - Video stays synchronized without a queued render thread.
 - Fast-forward speed changes with the game and the core.
 

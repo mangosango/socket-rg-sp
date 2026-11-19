@@ -107,7 +107,7 @@ func _run() -> void:
 	# The focus outline and the filled part of a level bar must be clear on the
 	# surface, in the light mode and in the dark mode.
 	var panel := root.get_node("DeviceSettings")
-	if not require(panel._rows.keys() == ["Brightness", "Volume", "Wi-Fi", "Bluetooth", "Game", "Cheats"], "the in-game menu shows only device and game controls"): return
+	if not require(panel._rows.keys() == ["Brightness", "Volume", "Wi-Fi", "Bluetooth", "Game", "Cheats", "Emulation"], "the in-game menu shows only device and game controls"): return
 	if not require(Rect2(Vector2.ZERO, panel._logical).encloses(panel._card.get_global_rect()), "all six rows fit on the panel"): return
 	var data := FileAccess.get_file_as_bytes(run_dir.path_join("menu.frame"))
 	var shot := Image.create_from_data(720, 480, false, Image.FORMAT_RGBA8, data.slice(28))

@@ -23,7 +23,7 @@ SHADERS = ["scenes/liquid_glass.gdshader", "materials/frosted_glass.gdshader", "
 MAX_DECODED = 8 * 1024 * 1024
 PLUGIN = Path("addons/FrontendPlugin")
 PLUGIN_SCRIPTS = """frontend_bridge folder_picker controller_dialog controls_hud artwork shader_startup
-                    device_settings wifi_settings bluetooth_settings bluetooth_audio game_overlay""".split()
+                    device_settings settings_form emulation_settings wifi_settings bluetooth_settings bluetooth_audio game_overlay""".split()
 
 
 def use_source(dest, source):

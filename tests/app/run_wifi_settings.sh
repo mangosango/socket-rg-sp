@@ -5,7 +5,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/addons/FrontendPlugin" "$WORK/run"
-cp "$HERE/../../overlay/addons/FrontendPlugin/wifi_settings.gd" "$WORK/addons/FrontendPlugin/"
+cp "$HERE/../../overlay/addons/FrontendPlugin/settings_form.gd" "$HERE/../../overlay/addons/FrontendPlugin/wifi_settings.gd" "$WORK/addons/FrontendPlugin/"
 cp "$HERE/test_wifi_settings.gd" "$WORK/"
 printf 'config_version=5\n' > "$WORK/project.godot"
 status=0
