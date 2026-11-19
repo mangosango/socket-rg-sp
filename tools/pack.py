@@ -32,7 +32,8 @@ def main(src, out):
         f.write(b"\0" * pad(f.tell(), ALIGN))
         file_base = f.tell()
         for rel in paths:
-            data = open(os.path.join(src, rel), "rb").read()
+            with open(os.path.join(src, rel), "rb") as source:
+                data = source.read()
             entries.append((rel, f.tell() - file_base, len(data), hashlib.md5(data).digest()))
             f.write(data)
             f.write(b"\0" * pad(f.tell(), ALIGN))

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark">
+  <title>Socket card converter · BaseOS</title><link rel="icon" href="data:,"><link rel="stylesheet" href="./style.css"><script defer src="./app.js"></script>
+</head>
+<!-- Inline icons: Lucide 0.468.0 (https://lucide.dev).
+ISC License
+
+Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part of Feather (MIT). All other copyright (c) for Lucide are held by Lucide Contributors 2022.
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+-->
+<body><main id="panel" data-view="drop">
+  <section id="drop" aria-labelledby="heading">
+    <svg class="border" aria-hidden="true"><rect x="2" y="2" rx="28"/></svg>
+    <svg class="lucide" aria-hidden="true" width="24" height="24" viewBox="0 0 24 24"><path d="M6 19v-3"/><path d="M10 19v-3"/><path d="M14 19v-3"/><path d="M18 19v-3"/><path d="M8 11V9"/><path d="M16 11V9"/><path d="M12 11V9"/><path d="M2 15h20"/><path d="M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v1.1a2 2 0 0 0 0 3.837V17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-5.1a2 2 0 0 0 0-3.837Z"/></svg>
+    <h1 id="heading">Preparing converter</h1><input id="apk" class="sr" type="file" aria-label="Choose APK" accept=".apk" disabled>
+    <label id="retry-file" for="apk" hidden>Choose another APK</label><a id="get" href="https://depmots.com/socket">Get Socket</a>
+    <p id="intro">This tool ports Socket to BaseOS so it can run on the RG SP.<br>All processing happens on your computer.</p>
+    <noscript>Enable JavaScript to convert your APK locally.</noscript>
+  </section>
+  <form id="options" class="column" autocomplete="off" hidden>
+    <h2 class="rule">Socket APK</h2>
+    <div class="file"><span id="filename" dir="auto"></span><small id="size"></small><svg class="lucide" aria-hidden="true" width="24" height="24" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></div>
+    <h2 class="rule">Port options</h2>
+    <div class="option"><label class="switch">WiFi<input type="checkbox" id="wifi" role="switch" checked></label><small>Your RG SP will automatically connect to this network.</small>
+    <fieldset><label>SSID<input name="ssid" placeholder="Enter SSID"></label><label>Password<input name="psk" type="password" placeholder="Enter password"></label></fieldset></div>
+    <div class="option"><label class="switch">Retro Achievements<input type="checkbox" id="achievements" role="switch" checked></label><small>Enable achievements from <a href="https://retroachievements.org" target="_blank" rel="noreferrer">retroachievements.org</a></small>
+    <fieldset><label>Username<input name="username" placeholder="Enter Username"></label><label>Password<input name="password" type="password" placeholder="Enter password"></label></fieldset></div>
+    <p class="note">Leave fields blank to skip. Entered credentials stay on this device and are saved as plain text in your ZIP and on your SD card. Do not share the ZIP.</p>
+    <div class="buttons"><button id="another" type="button">Choose another APK</button><button class="primary">Continue</button></div>
+  </form>
+  <section id="guide" class="column" aria-label="Installation" hidden>
+    <div class="badge"><span id="progress"><span id="meter" role="progressbar" aria-label="Conversion progress" aria-valuenow="0"><svg class="lucide" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" opacity=".25"/><circle id="arc" cx="12" cy="12" r="10" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100" transform="rotate(-90 12 12)"/></svg></span>Converting...</span><a id="download" aria-label="Download socket-baseos.zip" download="socket-baseos.zip" hidden><svg class="lucide" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>socket-baseos.zip</a></div>
+    <div class="steps"><section><h2>1. Install BaseOS</h2><p><a href="https://github.com/pvaibhav/BaseOS/wiki/BaseOS-Install-Guide">Download</a> and install BaseOS. Back up TF1 first: flashing erases it. When BaseOS is ready to add a frontend to the SD card, continue to step 2.</p></section>
+    <section><h2>2. Install Socket</h2><p>Extract the contents of <a id="step-download" download="socket-baseos.zip">socket-baseos.zip</a> to the root of your visible BASEOS SD card volume.</p><p>If you have an existing installation, back up System/launch_frontend.sh before overwriting it. Merge folders; do not replace System or delete your games, saves or settings. Another System/frontend takes precedence.</p></section>
+    <section><h2>3. Add your games</h2><p>Copy your own ROMs into Games/GB, Games/GBC or Games/GBA. Eject the card and boot. Choose Scan in each platform’s editor to find your games.</p></section></div>
+  </section>
+  <div id="feedback"><p id="status" role="status" aria-atomic="true">Loading the local tools…</p><button id="reset" type="button">Cancel</button></div>
+</main>
+<footer>Socket 0.10.1 · 0.8.0 · 0.3.2. Includes Godot, RetroArch and the mGBA core. For personal use only. <a href="./licenses/index.txt">License notices</a> · <a href="https://github.com/mangosango/socket-rg-sp">GitHub repository</a></footer></body></html>

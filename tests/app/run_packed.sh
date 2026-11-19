@@ -5,11 +5,17 @@ set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-mkdir -p "$WORK/data/godot/app_userdata/Socket" "$WORK/roms" "$WORK/cores"
-printf '[General]\nui_sounds_enabled=false\nhas_seen_warning=true\nhas_seen_control_style_prompt=true\ncontrol_layout_revision=1\nconfirm_joy_button=0\n' > "$WORK/data/godot/app_userdata/Socket/settings.cfg"
+data="$WORK/data"
+if [ "${2:-}" = test_first_boot.gd ]; then
+	(cd "$WORK" && sh "$HERE/../../card/System/socket/first-boot.sh")
+	data="$WORK/Saves/socket"
+	touch "$WORK/Games/GB/One.gb" "$WORK/Games/GBC/One.gbc" "$WORK/Games/GBA/One.gba"
+fi
+mkdir -p "$data/godot/app_userdata/Socket" "$WORK/roms" "$WORK/cores"
+printf '[General]\nui_sounds_enabled=false\nhas_seen_warning=true\nhas_seen_control_style_prompt=true\ncontrol_layout_revision=1\nconfirm_joy_button=0\n' > "$data/godot/app_userdata/Socket/settings.cfg"
 touch "$WORK/roms/One.gba" "$WORK/roms/Two.gba" "$WORK/cores/mgba_libretro.so"
 status=0
-XDG_DATA_HOME="$WORK/data" SOCKET_RUN="$WORK" SOCKET_TEST_ROOT="$WORK/roms" SOCKET_CORES="$WORK/cores" "${GODOT:-godot}" --headless --main-pack "$1" --script "$HERE/${2:-test_packed.gd}" --quit-after 6000 --log-file "$WORK/godot.log" > "$WORK/output" 2>&1 || status=$?
+XDG_DATA_HOME="$data" SOCKET_RUN="$WORK" SOCKET_TEST_ROOT="$WORK/roms" SOCKET_CORES="$WORK/cores" "${GODOT:-godot}" --headless --main-pack "$1" --script "$HERE/${2:-test_packed.gd}" --quit-after 6000 --log-file "$WORK/godot.log" > "$WORK/output" 2>&1 || status=$?
 if grep -q "fixture-private-web-key" "$WORK/output"; then echo "FAIL: Web API key in output" >&2; exit 1; fi
 cat "$WORK/output"
 test "$status" -eq 0

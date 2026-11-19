@@ -2,8 +2,8 @@
 
 Usage: python3 -I gdc2gd.py <in.gdc> <out.gd>
 """
+from pathlib import Path
 import struct
-import subprocess
 import sys
 
 NAMES = ("Empty Annotation Identifier Literal < <= > >= == != and or not && || ! & | ~ ^ << >> + - * ** / % "
@@ -15,8 +15,16 @@ ANNOT, IDENT, LIT = 1, 2, 3
 NEWLINE, INDENT, DEDENT = NAMES.index("Newline"), NAMES.index("Indent"), NAMES.index("Dedent")
 EOF = len(NAMES) - 1
 
+# The largest selected 0.10.1 script has 109,344 token bytes and 7,861 tokens.
+MAX_BUFFER = 2 * 1024 * 1024
+MAX_ITEMS = 64 * 1024
+MAX_COLUMN = 4096
+MAX_SOURCE = 2 * 1024 * 1024
+
 
 def u32(b, o):
+    if o + 4 > len(b):
+        raise ValueError("truncated GDSC integer")
     return struct.unpack_from("<I", b, o)[0]
 
 
@@ -33,8 +41,10 @@ def fmt_float(f):
 
 def read_string(b, o):
     n = u32(b, o)
-    s = b[o + 4:o + 4 + n].decode("utf-8")
-    return s, 4 + n + ((4 - n % 4) % 4)
+    length = 4 + n + (-n % 4)
+    if o + length > len(b):
+        raise ValueError("truncated GDSC string")
+    return b[o + 4:o + 4 + n].decode("utf-8"), length
 
 
 def decode_variant(b, o):
@@ -59,10 +69,13 @@ def decode_variant(b, o):
         return ("&" if t == 21 else "") + gd_str(s), 4 + n
     if t == 22:  # NodePath, new format
         names = u32(b, p)
-        assert names & 0x80000000, "old NodePath format"
+        if not names & 0x80000000:
+            raise ValueError("old NodePath format")
         names &= 0x7FFFFFFF
         subs, fl = u32(b, p + 4), u32(b, p + 8)
         q, parts = p + 12, []
+        if names + subs > MAX_ITEMS or names + subs > (len(b) - q) // 4:
+            raise ValueError("invalid NodePath part count")
         for _ in range(names + subs):
             s, n = read_string(b, q)
             parts.append(s)
@@ -74,18 +87,44 @@ def decode_variant(b, o):
     raise ValueError(f"unsupported constant variant type {t}")
 
 
-def load_tokens(path):
-    raw = open(path, "rb").read()
-    assert raw[:4] == b"GDSC", "not a GDSC file"
-    assert u32(raw, 4) == 101, f"tokenizer version {u32(raw, 4)}"
-    size = u32(raw, 8)
-    buf = raw[12:] if size == 0 else subprocess.run(["zstd", "-dc"], input=raw[12:], capture_output=True, check=True).stdout
-    assert size == 0 or len(buf) == size
+def load_tokens(path, decompress=None):
+    path = Path(path)
+    with path.open("rb", buffering=0) as source:
+        header = source.read(12)
+        if len(header) != 12 or header[:4] != b"GDSC" or u32(header, 4) != 101:
+            raise ValueError("expected a GDSC v101 file")
+        size = u32(header, 8)
+        if size > MAX_BUFFER or path.stat().st_size > MAX_BUFFER + 12:
+            raise ValueError("GDSC exceeds script size limit")
+        if size and decompress is None:
+            import subprocess
+            # A regular file supplies stdin so stdout can be bounded without a pipe deadlock.
+            source.seek(12)
+            with subprocess.Popen(["zstd", "-dc", "-M8MB"], stdin=source, stdout=subprocess.PIPE) as proc:
+                buf = proc.stdout.read(size + 1)
+                if len(buf) > size:
+                    proc.kill()
+                    raise ValueError("incorrect decompressed GDSC size")
+                if proc.wait():
+                    raise ValueError("invalid compressed GDSC")
+        else:
+            buf = source.read(MAX_BUFFER + 1)
+            if len(buf) > MAX_BUFFER:
+                raise ValueError("GDSC exceeds script size limit")
+            if size:
+                buf = decompress(buf, size)
+        if size and len(buf) != size:
+            raise ValueError("incorrect decompressed GDSC size")
     nid, nconst, nlines, ntok = (u32(buf, i) for i in (0, 4, 8, 12))
+    if (max(nid, nconst, nlines, ntok) > MAX_ITEMS or nlines > ntok or
+            16 + 4 * (nid + nconst) + 16 * nlines + 5 * ntok > len(buf)):
+        raise ValueError("invalid GDSC table count")
     o, idents, consts = 16, [], []
     for _ in range(nid):
         n = u32(buf, o)
         o += 4
+        if n > (len(buf) - o) // 4:
+            raise ValueError("truncated GDSC identifier")
         chars = bytes(c ^ 0xB6 for c in buf[o:o + n * 4])
         idents.append(chars.decode("utf-32-le"))
         o += n * 4
@@ -97,17 +136,25 @@ def load_tokens(path):
     o += nlines * 8
     cols = {u32(buf, o + 8 * i): u32(buf, o + 8 * i + 4) for i in range(nlines)}
     o += nlines * 8
-    toks = []
+    if lines.keys() != cols.keys() or len(lines) != nlines or any(index >= ntok for index in lines):
+        raise ValueError("invalid GDSC line table")
+    toks = [(NEWLINE, (1, 1))]
     for i in range(ntok):
         if i in lines:
             toks.append((NEWLINE, (lines[i], cols[i])))
+        if o >= len(buf):
+            raise ValueError("truncated GDSC token")
         word = u32(buf, o) if buf[o] & 0x80 else buf[o]
         o += 8 if buf[o] & 0x80 else 5
         kind = word & 0x7F
         val = word >> 8
+        if (kind > EOF or kind == NEWLINE or (kind in (ANNOT, IDENT) and val >= nid)
+                or (kind == LIT and val >= nconst)):
+            raise ValueError("invalid GDSC token")
         toks.append((kind, idents[val] if kind in (ANNOT, IDENT) else consts[val] if kind == LIT else None))
-    assert o == len(buf), "trailing data"
-    return [(NEWLINE, (1, 1))] + toks
+    if o != len(buf):
+        raise ValueError("invalid GDSC token length")
+    return toks
 
 
 NO_SPACE_BEFORE = {")", "]", "}", ",", ".", ":", ";"}
@@ -116,20 +163,31 @@ UNARY_CONTEXT = {None, "(", "[", "{", ",", "=", "return", ":", "and", "or", "not
                  "+", "-", "*", "/", "%", "**", "<", ">", "<=", ">=", "==", "!=", "+=", "-=", "*=", "/=", "->", "when"}
 
 
-def render(toks):
+def render(toks, max_bytes=MAX_SOURCE):
     """Emit tokens on their original line numbers, indenting by the original column."""
-    out, line, prev, paren, indent = [], [], None, 0, ""
+    out, line, prev, indent = [], [], None, ""
+    remaining = max_bytes
+
+    def reserve(size):
+        nonlocal remaining
+        if size > remaining:
+            raise ValueError("rendered GDScript exceeds source size limit")
+        remaining -= size
 
     def flush():
         if line:
+            reserve(len(indent) + 1)
             out.append(indent + "".join(line))
 
     for kind, val in toks:
         if kind == NEWLINE:
             flush()
             lineno, col = val
-            while len(out) < lineno - 1:
-                out.append("")
+            if not 1 <= lineno <= MAX_ITEMS or not 1 <= col <= MAX_COLUMN:
+                raise ValueError("invalid GDSC line or column")
+            gap = max(0, lineno - 1 - len(out))
+            reserve(gap)
+            out.extend([""] * gap)
             line, prev, indent = [], None, "\t" * (col - 1)
             continue
         text = val if kind in (ANNOT, IDENT, LIT) else NAMES[kind]
@@ -141,14 +199,14 @@ def render(toks):
             if text == ":" and prev is not None:
                 glue = True
             if not glue:
+                reserve(1)
                 line.append(" ")
+        reserve(len(text.encode("utf-8")))
         line.append(text)
         prev = "unary" if unary_minus else text
-        if text in ("(", "[", "{"):
-            paren += 1
-        elif text in (")", "]", "}"):
-            paren -= 1
     flush()
+    if not out:
+        reserve(1)
     return "\n".join(out) + "\n"
 
 

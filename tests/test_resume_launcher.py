@@ -124,7 +124,7 @@ class ResumeLauncherTests(unittest.TestCase):
                 record.parent.mkdir(parents=True)
                 record.write_text(self.descriptor())
                 run = card / "run"
-                for name in ("resume_game.sh", "play_game.sh", "poweroff_ready.sh", "poweroff.sh", "wifi.sh"):
+                for name in ("first-boot.sh", "resume_game.sh", "play_game.sh", "poweroff_ready.sh", "poweroff.sh", "wifi.sh"):
                     (system / name).write_text((SCRIPTS / name).read_text())
                 (system / "socket-hardware").write_text(
                     'touch "$SOCKET_RUN/hardware.ready"\ntrap "exit 0" TERM INT\nwhile :; do sleep .05; done\n')

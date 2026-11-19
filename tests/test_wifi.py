@@ -383,7 +383,7 @@ esac
         shutil.copy(self.config, card / "Config/wifi.txt")
         for name in ("wifi.sh", "wifi-lease.sh", "socket-wifi-config"):
             shutil.copy(self.root / name, system)
-        for name in ("play_game.sh", "poweroff_ready.sh"):
+        for name in ("first-boot.sh", "play_game.sh", "poweroff_ready.sh"):
             shutil.copy(SYSTEM / name, system)
         script(system / "socket-hardware", """
 touch "$SOCKET_RUN/hardware.ready"

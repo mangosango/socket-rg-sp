@@ -861,27 +861,58 @@ EDITS.extend(WIFI_EDITS)
 
 def socket_version(project_binary):
     """Read application/config/version from a binary project.godot (ECFG)."""
-    data = open(project_binary, "rb").read()
-    key = b"application/config/version"
-    at = data.find(struct.pack("<I", len(key)) + key)
-    if data[:4] != b"ECFG" or at < 0:
+    limit = 1024 * 1024
+    with open(project_binary, "rb") as project:
+        data = project.read(limit + 1)
+    if not 8 <= len(data) <= limit or data[:4] != b"ECFG":
         return None
-    # Key, then the encoded value size and a String variant: type 4, length, bytes.
-    kind, size = struct.unpack_from("<II", data, at + 4 + len(key) + 4)
-    start = at + 4 + len(key) + 12
-    return data[start:start + size].decode() if kind == 4 else None
+    count, = struct.unpack_from("<I", data, 4)
+    if count > (len(data) - 8) // 8:
+        return None
+    at, version = 8, None
+    for _ in range(count):
+        if at + 4 > len(data):
+            return None
+        key_size, = struct.unpack_from("<I", data, at)
+        at += 4
+        end = at + key_size
+        if end + 4 > len(data):
+            return None
+        is_version = data[at:end] == b"application/config/version"
+        length, = struct.unpack_from("<I", data, end)
+        at = end + 4
+        if at + length > len(data):
+            return None
+        if is_version:
+            if version is not None or not 8 <= length <= 40:
+                return None
+            kind, size = struct.unpack_from("<II", data, at)
+            if kind != 4 or length != 8 + size + (-size % 4):
+                return None
+            version = data[at + 8:at + 8 + size].decode("ascii", errors="replace")
+        at += length
+    return version if at == len(data) else None
+
+
+def validate_version(project_binary):
+    version = socket_version(project_binary)
+    if version not in VERSIONS:
+        raise ValueError(f"Socket version is not supported; use {' or '.join(VERSIONS)}")
+    return version
 
 
 def main(root, project_binary):
-    version = socket_version(project_binary)
-    if version not in VERSIONS:
-        sys.exit(f"patch-socket: Socket {version} is not supported; use {' or '.join(VERSIONS)}")
+    try:
+        version = validate_version(project_binary)
+    except ValueError as exc:
+        sys.exit(f"patch-socket: {exc}")
     files = {}
     for path, pattern, repl, count, flags, *versions in EDITS:
         if versions and version not in versions:
             continue
         if path not in files:
-            files[path] = open(f"{root}/{path}", encoding="utf-8").read()
+            with open(f"{root}/{path}", encoding="utf-8") as source:
+                files[path] = source.read()
         files[path], n = re.subn(pattern, repl, files[path], flags=flags)
         if n != count:
             sys.exit(f"patch-socket: {path}: /{pattern[:60]}/ matched {n} times, expected {count}")

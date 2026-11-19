@@ -15,4 +15,5 @@ pages go deeper into the port.
   frame-rate log.
 - [Development](development.md): partial builds, tests, tools and open
   device checks.
+- [Browser installer](web-converter.md): turn an APK into a complete first-install ZIP, validate the output, and publish the tool on GitHub Pages. See also the [implementation plan](web-converter-plan.md).
 - [Licenses](licenses.md): third-party code in this repository.

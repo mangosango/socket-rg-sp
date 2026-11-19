@@ -45,6 +45,22 @@ class PatchSocketTests(unittest.TestCase):
             project_binary(Path(tmp) / "project.binary", "0.3.2")
             self.assertEqual(patch_socket.socket_version(Path(tmp) / "project.binary"), "0.3.2")
 
+    def test_version_check_rejects_corrupt_or_unknown_versions_without_echoing_data(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "project.binary"
+            project_binary(path, "private-text")
+            unsupported = path.read_bytes()
+            project_binary(path, "0.10.1")
+            supported = path.read_bytes()
+            self.assertEqual(patch_socket.validate_version(path), "0.10.1")
+            # A version-shaped substring inside another value is not a version setting.
+            nested = b"ECFG" + struct.pack("<II", 1, 1) + b"x" + struct.pack("<I", len(supported)) + supported
+            for data in (unsupported, supported[:-1], supported[:8] + b"\xff" * 4, nested,
+                         supported + bytes(1024 * 1024)):
+                path.write_bytes(data)
+                with self.assertRaisesRegex(ValueError, r"^Socket version is not supported; use 0\.10\.1 or 0\.8\.0 or 0\.3\.2$"):
+                    patch_socket.validate_version(path)
+
     def test_version_scopes(self):
         edit = ("file", "pattern", "replacement", 1, 0)
         self.assertEqual(patch_socket.only(patch_socket.MODERN, edit)[5:], ("0.10.1", "0.8.0"))

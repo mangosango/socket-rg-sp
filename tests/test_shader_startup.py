@@ -97,11 +97,6 @@ class ShaderStartupContracts(unittest.TestCase):
         self.assertIn("CartFinishBank.build(finish.id, finish.fallback_color, cart.casing_maps())", source)
         self.assertNotIn("cart.update_material(", source)
 
-    def test_build_installs_helper_and_decodes_main(self):
-        source = (ROOT / "tools/build-pack.sh").read_text()
-        self.assertIn("scenes/main.gd", source)
-        self.assertIn("use_source addons/FrontendPlugin/shader_startup.gd", source)
-
 
 if __name__ == "__main__":
     unittest.main()

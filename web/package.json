@@ -1,0 +1,7 @@
+{
+  "name": "socket-converter-runtime",
+  "private": true,
+  "dependencies": {
+    "pyodide": "314.0.8"
+  }
+}

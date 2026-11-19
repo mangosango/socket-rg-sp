@@ -90,6 +90,7 @@ class ResidentLauncherTests(unittest.TestCase):
                 root = Path(directory)
                 system = root / "System/socket"
                 system.mkdir(parents=True)
+                (system / "first-boot.sh").write_text((ROOT / "card/System/socket/first-boot.sh").read_text())
                 (system / "wifi.sh").write_text((ROOT / "card/System/socket/wifi.sh").read_text())
                 (system / "poweroff_ready.sh").write_text((ROOT / "card/System/socket/poweroff_ready.sh").read_text())
                 (system / "poweroff.sh").write_text((ROOT / "card/System/socket/poweroff.sh").read_text())

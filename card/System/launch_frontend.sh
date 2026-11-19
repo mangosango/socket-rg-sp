@@ -27,7 +27,7 @@ if ! mkdir -m 700 "$SOCKET_RUN" 2>/dev/null; then
 	# shellcheck disable=SC3067
 	[ -O "$SOCKET_RUN" ] && chmod 700 "$SOCKET_RUN" || exit 1
 fi
-mkdir -p "$LOGS" "$XDG_DATA_HOME"
+mkdir -p "$LOGS" || exit 1
 
 # One input owner serves Socket and RetroArch. Fail if another daemon has the pad.
 rm -f "$SOCKET_RUN/hardware.ready" "$SOCKET_RUN/app.pid" "$SOCKET_RUN/poweroff.request" \
@@ -76,6 +76,9 @@ while [ ! -f "$SOCKET_RUN/hardware.ready" ]; do
 	[ "$tries" -lt 100 ] || exit 1
 	sleep 0.05
 done
+
+# Seed only missing offline library files before Godot reads user://.
+sh "$SYS/first-boot.sh" 2> "$LOGS/socket-first-boot.log" || exit 1
 
 # The hardware lock now belongs to this session. Network waits run in parallel.
 rm -f "$SOCKET_RUN/shallow.sleep" "$SOCKET_RUN/wifi.stop" "$SOCKET_RUN/wifi.ready" "$SOCKET_RUN/wifi.clock-error"

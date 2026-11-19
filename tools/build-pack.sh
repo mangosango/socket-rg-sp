@@ -28,56 +28,5 @@ rm -rf "$ASSETS/assets.sparsepck" "$ASSETS/_cl_" "$ASSETS/dexopt"
 RES="$WORK/res"
 "$WORK/godot-unpack" extract "$WORK/apk/lib/arm64-v8a/libgodot_android.so" "$ASSETS" "$RES"
 
-# Replace compiled scripts with patched source. Godot loads res://x.gd once
-# its .remap and .gdc are gone.
-use_source() {
-	rm -f "$RES/$1.remap" "$RES/${1%.gd}.gdc"
-	cp "$2" "$RES/$1"
-}
-mkdir -p "$WORK/src"
-SCRIPTS="scenes/main.gd scripts/game.gd scripts/autoload/manager.gd scripts/autoload/settings_manager.gd scenes/screen_apps.gd scenes/screen_edit_platform.gd scripts/autoload/theme_manager.gd scripts/screens/screen.gd scenes/focus_overlay.gd scripts/cartridge.gd scenes/render_scale_3d.gd scenes/cartridge_carousel.gd scenes/keyboard_avoider.gd scripts/models/scrapers/scraper_games_db.gd scripts/autoload/retro_achievements.gd scripts/screens/screen_customize.gd"
-if [ -f "$RES/scripts/autoload/romm.gdc" ]; then
-	SCRIPTS="$SCRIPTS scripts/autoload/romm.gd"
-fi
-for script in $SCRIPTS; do
-	mkdir -p "$WORK/src/$(dirname "$script")"
-	python3 -I "$HERE/gdc2gd.py" "$RES/${script%.gd}.gdc" "$WORK/src/$script"
-done
-SHADERS="scenes/liquid_glass.gdshader materials/frosted_glass.gdshader scenes/paper_sticker.gdshader"
-# Socket 0.10.1 moved the shared sticker shader into an include.
-if [ -f "$RES/scenes/paper_sticker_body.gdshaderinc" ]; then
-	SHADERS="$SHADERS scenes/paper_sticker_body.gdshaderinc"
-fi
-for shader in $SHADERS; do
-	mkdir -p "$WORK/src/$(dirname "$shader")"
-	cp "$RES/$shader" "$WORK/src/$shader"
-done
-cp -R "$WORK/src" "$WORK/decoded"
-python3 -I "$HERE/patch-socket.py" "$WORK/src" "$RES/project.binary"
-# Replace only the files that this Socket version needs to change.
-for shader in $SHADERS; do
-	cp "$WORK/src/$shader" "$RES/$shader"
-done
-for script in $SCRIPTS; do
-	cmp -s "$WORK/src/$script" "$WORK/decoded/$script" || use_source "$script" "$WORK/src/$script"
-done
-use_source addons/FrontendPlugin/frontend_bridge.gd "$OVERLAY/addons/FrontendPlugin/frontend_bridge.gd"
-use_source addons/FrontendPlugin/folder_picker.gd "$OVERLAY/addons/FrontendPlugin/folder_picker.gd"
-use_source addons/FrontendPlugin/controller_dialog.gd "$OVERLAY/addons/FrontendPlugin/controller_dialog.gd"
-use_source addons/FrontendPlugin/controls_hud.gd "$OVERLAY/addons/FrontendPlugin/controls_hud.gd"
-use_source addons/FrontendPlugin/artwork.gd "$OVERLAY/addons/FrontendPlugin/artwork.gd"
-use_source addons/FrontendPlugin/shader_startup.gd "$OVERLAY/addons/FrontendPlugin/shader_startup.gd"
-for script in device_settings wifi_settings bluetooth_settings bluetooth_audio game_overlay; do
-	use_source "addons/FrontendPlugin/$script.gd" "$OVERLAY/addons/FrontendPlugin/$script.gd"
-done
-cp -R "$OVERLAY/addons/FrontendPlugin/controls" "$RES/addons/FrontendPlugin/controls"
-mkdir -p "$RES/shaders"
-cp "$OVERLAY/shaders/display_aa.gdshader" "$RES/shaders/display_aa.gdshader"
-
-# The AYN Thor second-screen GDExtension has no Linux AArch64 build.
-rm -rf "$RES/addons/AynThor/bin"
-grep -v AynThor "$RES/.godot/extension_list.cfg" > "$WORK/extension_list.cfg" || true
-mv "$WORK/extension_list.cfg" "$RES/.godot/extension_list.cfg"
-
-python3 -I "$HERE/pack.py" "$RES" "$OUT"
+python3 -I "$HERE/build_pack.py" "$RES" "$OVERLAY" "$OUT"
 echo "build-pack: wrote $OUT"

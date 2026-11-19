@@ -25,12 +25,14 @@ This project is not affiliated with or endorsed by the Socket developers.
 - An RG SP with BaseOS on the card in slot TF1.
 - A Socket APK, version 0.10.1, 0.8.0 or 0.3.2. Version 0.3.2 is the last free
   version. See [Socket versions](docs/socket-versions.md).
-- A macOS or Linux computer with Docker (AArch64 Linux containers), a C
-  compiler, OpenSSL libcrypto, Python 3, zstd, unzip and patch.
-- An AArch64 Linux libretro core for each platform, for example
-  `mgba_libretro.so`.
+- A desktop browser for the [web installer](docs/web-converter.md). It supplies the RG SP engine, RetroArch and the mGBA core for GB, GBC and GBA. You supply your own games.
+- **Manual build only:** macOS or Linux with Docker (AArch64 Linux containers), a C compiler, OpenSSL libcrypto, Python 3, zstd, unzip and patch. The manual `build.sh` path still requires an AArch64 libretro core.
 
 ## Build
+
+For a first install, use the [browser installer](docs/web-converter.md) and skip to **Install** below. You do not need a compiler, an existing Socket card, or a separate core download.
+
+To build the port manually instead:
 
 1. Point the build at your APK:
 
@@ -45,27 +47,14 @@ The first build compiles Godot and RetroArch. Expect it to take a while.
 ## Install
 
 1. If BaseOS is not installed, follow the [BaseOS installation
-   guide](https://github.com/pvaibhav/BaseOS/blob/main/INSTALL.md) to install
+   guide](https://github.com/pvaibhav/BaseOS/wiki/BaseOS-Install-Guide) to install
    it on the card for slot TF1. Back up the card first: flashing erases it.
-2. Turn off your RG SP and put its BaseOS card in your computer.
-3. If the card has another frontend, back up its
-   `System/launch_frontend.sh`. The next step will overwrite it.
-4. Copy the contents of `dist/` to the root of the card.
-5. Copy your libretro cores to `System/socket/cores/`.
-6. Put your games in `Games/GB`, `Games/GBC` and `Games/GBA`. Create each
-   folder that you plan to use, even if it is empty.
-7. Prepare the library on a Mac before the first boot. See [Prepare the
-   library](#prepare-the-library-macos-only).
-8. Eject the card. Put it in slot TF1 and turn on the RG SP.
+2. Turn off the RG SP and mount the visible `BASEOS` volume (or a dedicated frontend card). Use one frontend per card. Back up an existing card first: `System/launch_frontend.sh` will be replaced, and a different frontend's `System/frontend` binary takes priority over that script.
+3. Unzip `socket-baseos.zip` on your computer. **Copy the extracted contents to the card root**, merging directories rather than replacing or deleting them. Check that `System/launch_frontend.sh` is directly under the root, not inside a `socket-baseos/` folder. Do not copy the unopened ZIP or reflash the card.
+4. Add your own unpacked `.gb`, `.gbc` and `.gba` games in `Games/GB/`, `Games/GBC/` and `Games/GBA/`. The ZIP already includes mGBA; no core or BIOS download is needed for normal play. **Manual build only:** copy the contents of `dist/` instead of the ZIP and supply `System/socket/cores/mgba_libretro.so` yourself.
+5. Eject the card, put it back in the RG SP and power on. On a fresh card the launcher prepares the platform and emulator entries. Select **Scan** in each platform's editor to find your games; Wi-Fi and a Mac are not required. Existing libraries are not reset.
 
-Prepare the emulator lists on your computer before the first boot. Socket can
-download artwork on a Wi-Fi-capable RG SP. You can also prepare the artwork on
-your computer and use the device offline.
-
-After this setup, you can scan new ROMs for the prepared platforms on the
-RG SP with Socket's platform editor. Pick a ROM folder and a RetroArch
-emulator, then select **Scan**.
-Socket shows only emulators that have a core in `System/socket/cores/`.
+To add more games later, copy the ROMs and scan again. Socket shows only emulators that have a core in `System/socket/cores/`.
 An on-device scan loads cached media and downloads missing artwork when Wi-Fi is connected.
 
 ## Connect to Wi-Fi and enable RetroAchievements
@@ -102,8 +91,7 @@ can contain Wi-Fi and account credentials.
 folders. It scans unpacked `.gb`, `.gbc` and `.gba` files. If the card has
 Slot's mGBA or gpSP core in `System/`, the tool copies it to
 `System/socket/cores/`.
-Run this preparation before the first boot. When you add more games, scan
-on the RG SP over Wi-Fi or run the tool again on your computer.
+This is optional desktop preparation for scanning or fetching artwork, not a first-boot prerequisite. When you add more games, scan on the RG SP or run the tool again on your computer.
 
 Missing metadata or artwork does not hide games from the homescreen.
 Socket uses the ROM file name without its extension when metadata is missing and
@@ -191,6 +179,18 @@ Look in the card's `Logs` folder:
 
 If the build stops at `patch-socket`, your APK uses an unsupported Socket
 version.
+
+## Contributor setup
+
+Install [Gitleaks](https://github.com/gitleaks/gitleaks) v8.30 or newer
+(`brew install gitleaks` on macOS), then enable the tracked Git hooks once per clone:
+
+```sh
+git config --local core.hooksPath .githooks
+```
+
+The pre-commit hook scans staged changes, not unstaged files or commit history.
+It blocks the commit on a finding or scanner error and redacts secrets in its output.
 
 ## More information
 
