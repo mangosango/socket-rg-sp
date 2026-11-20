@@ -35,6 +35,9 @@ func _run() -> void:
 	var premul := ShaderMaterial.new()
 	premul.shader = Shader.new()
 	premul.shader.code = "#define DISPLAY_LINEAR\n" + material.shader.code
+	var short_edge := ShaderMaterial.new()
+	short_edge.shader = Shader.new()
+	short_edge.shader.code = "#define DISPLAY_SPLIT_EDGE\n#define DISPLAY_LINEAR\n" + material.shader.code
 	if not require(premul.shader.get_mode() == Shader.MODE_CANVAS_ITEM, "linear variant is a canvas shader"): return
 	# opaque: artwork, a white and black diagonal with full alpha. coverage, black:
 	# the outline of a cartridge on empty pixels. translucent: a casing with half
@@ -57,12 +60,14 @@ func _run() -> void:
 		display.texture = ImageTexture.create_from_image(source)
 		display.modulate = Color(0.5, 0.75, 1, 0.6) if fixture == "modulate" else Color.WHITE
 		var baseline: Image
-		for enabled in [false, true]:
-			display.material = material if enabled else premul
+		for filter: ShaderMaterial in [premul, material, short_edge]:
+			var enabled := filter != premul
+			display.material = filter
 			for i in range(3): await process_frame
 			await RenderingServer.frame_post_draw
 			var image := view.get_texture().get_image()
-			if not require(image.save_png(output.path_join(fixture + ("-aa.png" if enabled else "-linear.png"))) == OK, "save display evidence"): return
+			var suffix := "-split-edge.png" if filter == short_edge else ("-aa.png" if enabled else "-linear.png")
+			if not require(image.save_png(output.path_join(fixture + suffix)) == OK, "save display evidence"): return
 			# Each variant must keep premultiplied color and the modulation.
 			var variant := "edge filter" if enabled else "linear"
 			if fixture in ["coverage", "modulate", "translucent", "prefiltered", "dot"]:

@@ -12,6 +12,12 @@ and B goes back. The hardware volume buttons also work while the panel is open.
 
 - **Cartridge edge smoothing** appears in the Socket launcher. Press **A**
   to switch edge smoothing on or off. Socket saves your choice.
+- **High res labels** (Socket 0.10.1 launcher): press **A** to draw the selected
+  cartridge’s sticker at panel resolution. Side cartridges and their labels use
+  the selected 3D scale until you scroll to them. Glass still refracts the scaled
+  scene; the exposed face of the selected sticker stays sharp. Edge smoothing in
+  this mode filters the casing outline instead of multisampling the glass. The
+  two choices are saved separately.
 - **Wi-Fi** can scan for WPA2-Personal networks or join a hidden network by name. Use the
   controller keyboard to enter the password. A successful join saves the
   profile for the next boot. Switching Wi-Fi off keeps the saved profile.

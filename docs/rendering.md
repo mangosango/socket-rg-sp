@@ -186,7 +186,9 @@ Across 12 cartridge poses and finishes on Mesa, the new filter reduced mean
 absolute silhouette coverage error from 27.3 to 18.3 at 540x360, and from
 19.3 to 12.3 at 720x480. Coverage ranges from 0 to 255. The reference used
 2880x1920 renders reduced to panel size. These figures measure the outer
-edge. Cartridge label detail still depends on the 3D resolution.
+edge. Cartridge label detail still depends on the 3D resolution. The
+[native-resolution cartridge label plan](cartridge-label-rendering-plan.md)
+proposes measuring a separate label pass before changing that default.
 
 In seven interleaved trials of 120 frames at 540x360, the median frame on
 Mesa llvmpipe took 10.00 ms with bilinear filtering and 11.93 ms with the
@@ -243,6 +245,37 @@ and the saved MSAA preference.
 Device Settings shows **Paused** after this fallback. Switch MSAA off and on
 to retry it during the same session.
 
+### Experimental: native cartridge labels
+
+In Socket 0.10.1, **Device Settings → High res labels** draws the **selected** GB, GBC or GBA sticker at one texel per panel pixel. Side cartridges keep their artwork at body resolution until selected. The setting is saved and off by default unless the launcher exports `SOCKET_3D_SPLIT_LABEL=1`. The Display slider sets body resolution: 360×240 at 0.50, 474×316 at 0.66 and a single native pass at 1.00. No saved scale is changed.
+
+The native camera crops to the moving sticker on integer panel pixels. An ordinary 720×480 carousel can use a 360×240 target without lowering sticker resolution. The crop expands for large artwork. When another cart can shadow the sticker, it uses the original projection so the two views agree on the shadow map; paused views also use the original projection. Unsupported selected artwork or unsafe geometry falls back to the complete, scaled scene in the same frame.
+
+With the card's automatic **Cartridge edge smoothing**, the split uses single-sample targets and filters the casing silhouette in the existing display pass. This avoids the extra multisample resolve when glass reads the scene. Sticker text is not filtered. Turning smoothing off skips the automatic silhouette filter; forced 2×/4× MSAA still works for comparisons. Disabling the split restores the normal body AA policy.
+
+Both cameras share the scene, lights and live cover material. If glass is visible, the scaled draw includes all stickers so refraction can still sample them. In the native pass, casing and neighbor geometry masks the selected label wherever something is in front. Only exposed sticker pixels are composited. Shader warmup exercises this path when enabled.
+
+To check the image on Mesa, run `SOCKET_3D_SPLIT_LABEL=1 python3 tests/app/run_split_label_render.py <0.10.1.pck> <new-evidence-dir>`. Add `SOCKET_3D_MSAA=2` to run the same comparison with smoothing enabled on the casing. The test captures the final panel image at identical poses and compares the visible label interior to a native single-pass reference. `python3 tests/app/run_render.py <0.10.1.pck> tests/app/test_split_label_favorites.gd <new-evidence-dir>` checks a real Favorites wraparound between GBA and translucent GBC carts. `python3 tests/app/run_split_label_depth.py <new-evidence-dir>` checks the occlusion shader without a pack.
+
+Before this change, the RG SP log contained 53 five-second main-menu samples at 474×316 with glass, 2× MSAA and 66 draws. Median sampled frame rate was **23.8 FPS** and median sampled p95 was **51.0 ms**; it was not running near the 16.67 ms budget for 60 Hz.
+
+A matched **Mesa GLES** test used the same 474×316 body, three translucent GBA carts, repeatable idle tilt, 90 frames and six scrolls per round for three rounds. Times are medians of the round statistics, with vsync off. The tile-capability shim exercises the card’s auto-AA decision; it does not emulate Mali speed.
+
+| 0.66 scale, high-res labels | Idle median | Idle p95 | Scrolling p95 |
+| --- | ---: | ---: | ---: |
+| Previous build, auto (2× MSAA) | 24.12 ms | 25.56 ms | 25.68 ms |
+| Selected sticker, forced 2× MSAA | 22.47 ms | 23.84 ms | 24.73 ms |
+| Selected sticker, smoothing off | 13.13 ms | 13.83 ms | 14.01 ms |
+| Selected sticker, auto (short outline filter) | **13.94 ms** | **14.79 ms** | **14.89 ms** |
+
+The optimized auto run stayed split for all 270 timed tilt frames and all 647 navigation frames. The sampled label target was 360×240 instead of 720×480; typical label draws fell from 15 to 7. The major saving with glass was avoiding the multisample resolve. The short filter uses two nearby outline reads instead of six and kept squared coverage error below 53% of bilinear in the diagonal-edge fixture. The 16.67 ms target has not yet been verified on the RG SP.
+
+At 0.66, mean absolute error on the exposed sticker in front, tilted and off-center poses was below one RGB code per channel (0–255) against a native single-pass capture. Glass retained the scaled refraction; comparing back-facing and overlapping poses found no changed pixels in the protected regions.
+
+To reproduce the comparison on the handheld, put `SOCKET_BENCH_LABEL_COMPARE=66` in `Benchmark/options` and follow the instructions below. It runs single-pass (no AA) and split (off, forced 2×, auto) at 0.66 with the same five translucent GBA titles, three carts visible, light and artwork. Each trial uses a temporary profile, warms before timing, advances the normal idle tilt in repeatable 1/60-second steps, then scrolls six times per round. Compare steady and navigation times, the actual body/label regions and active-frame counts. Run `python3 tests/app/bench_report.py Benchmark/results-<n>` to summarize. Use `SOCKET_BENCH_LABEL_COMPARE=1` for the older opaque scale comparison.
+
+### Rendering environment variables
+
 | Variable | Card setting | Other settings |
 | --- | --- | --- |
 | `SOCKET_3D_CAP` | `1` (up to 720x480) | `0.6667` caps the slider at 480x320. |
@@ -276,7 +309,8 @@ is replaced on each start. Each line includes:
 - `viewport_3d_draw_cpu_ms` and `window_draw_cpu_ms` measure CPU wall time
   inside each viewport draw. The latter includes the 2D scene. A driver wait
   can contribute to either value. The GLES backend on this device does not
-  provide per-viewport GPU timer results.
+  provide per-viewport GPU timer results. An active label pass also reports
+  its cropped `viewport_label` dimensions and `label_draw_cpu_ms`.
 - `p95_frame_ms`: the 95th percentile frame time of the sample.
 - `nav_frames`, `nav_p95_ms` and `nav_worst_ms`: the same for navigation
   frames. A navigation frame has a button down, or had one in the last 0.5

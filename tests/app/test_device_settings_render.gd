@@ -145,7 +145,11 @@ func _run() -> void:
 
 	root.get_node("FrontendBridge").open_device_settings()
 	panel = root.get_node("DeviceSettings")
-	if not require(panel._rows.keys() == ["Brightness", "Volume", "Wi-Fi", "Bluetooth", "Cartridge edge smoothing", "Emulation"], "launcher menu has five device settings"): return
+	var rows := ["Brightness", "Volume", "Wi-Fi", "Bluetooth", "Cartridge edge smoothing"]
+	var supports_labels := ResourceLoader.exists("res://addons/FrontendPlugin/split_label_view.gd")
+	if supports_labels: rows.append("High res labels")
+	rows.append("Emulation")
+	if not require(panel._rows.keys() == rows, "launcher menu has the supported device settings"): return
 	if not require(panel._card.size.y <= panel._logical.y, "the launcher menu is on the display"): return
 	var image := await shot("root")
 	var gui: SubViewport = panel._gui
@@ -183,6 +187,16 @@ func _run() -> void:
 		await wait(0.6)
 		if not require(settings.get_setting("cartridge_msaa") == true and shown.text == "On" and views[0].msaa_3d == mode, "A sets MSAA on again in the cartridge viewport"): return
 	print("Cartridge edge smoothing: mode %d, row %s" % [mode, shown.text])
+	if supports_labels:
+		var before: bool = settings.get_setting("high_res_labels")
+		if not await choose("High res labels"): return
+		var saved := ConfigFile.new()
+		var value: Label = panel._rows["High res labels"].get_node("Side/Value")
+		if not require(saved.load("user://settings.cfg") == OK and saved.get_value("General", "high_res_labels") == (not before)
+			and value.text == ("Off" if before else "On"), "High res labels shows and saves the choice"): return
+		await press(JOY_BUTTON_A)
+		await wait(0.6)
+		if not require(settings.get_setting("high_res_labels") == before, "High res labels switches back"): return
 
 	# Wi-Fi: scan, choose the long name, type a password on the keyboard, join.
 	if not await choose("Wi-Fi"): return

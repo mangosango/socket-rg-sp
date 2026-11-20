@@ -172,6 +172,7 @@ class PatchSocketTests(unittest.TestCase):
                 for name in patch_socket.BENCH_NAMES:
                     self.assertIn(name, view)
                 # The separate tonemap pass exists only with the shadow map.
+                self.assertEqual('if SettingsManager.get_setting("high_res_labels"):' in view, version == "0.10.1")
                 self.assertEqual("world.environment.adjustment_enabled = shadow_map\n" in view, version != "0.3.2")
                 self.assertNotIn("    ", view, "Socket sources use tabs")
         avoider = self.patched(patch_socket.KEYBOARD_AVOIDER, "0.3.2", STUB)

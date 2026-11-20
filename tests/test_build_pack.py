@@ -105,6 +105,7 @@ class BuildPackTests(unittest.TestCase):
                     self.assertEqual((src / include).exists(), optional)
                     if optional:
                         (src / include).write_bytes(b"patched shader")
+                    return "0.10.1" if optional else "0.3.2"
 
                 with patch.object(pipeline, "MAX_DECODED", 1):
                     with self.assertRaisesRegex(ValueError, "source size"):
@@ -124,7 +125,11 @@ class BuildPackTests(unittest.TestCase):
                     self.assertEqual((res / include).read_bytes(), b"patched shader")
                 for file in (ROOT / "overlay").rglob("*"):
                     if file.is_file() and not file.name.startswith("."):
-                        self.assertEqual((res / file.relative_to(ROOT / "overlay")).read_bytes(), file.read_bytes())
+                        packed = res / file.relative_to(ROOT / "overlay")
+                        if not optional and file.name.startswith("split_label_"):
+                            self.assertFalse(packed.exists())
+                        else:
+                            self.assertEqual(packed.read_bytes(), file.read_bytes())
                 self.assertFalse((plugin / "controls/controls").exists())
                 self.assertEqual((plugin / "controls/existing").read_bytes(), b"keep")
                 self.assertFalse((plugin / "shader_startup.gdc").exists())

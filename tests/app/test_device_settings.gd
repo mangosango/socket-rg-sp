@@ -21,9 +21,9 @@ class Guide extends Node:
 	func _unhandled_input(event: InputEvent) -> void:
 		inject_input(event)
 
-# Like Socket's SettingsManager, with the cartridge MSAA setting only.
+# Like Socket’s SettingsManager, with the two cartridge display preferences.
 class Settings extends Node:
-	var values := {"cartridge_msaa": true}
+	var values := {"cartridge_msaa": true, "high_res_labels": false}
 	var saves := 0
 	var mode := Viewport.MSAA_2X
 	func cartridge_msaa_mode() -> Viewport.MSAA:
@@ -429,7 +429,7 @@ func _run() -> void:
 	root.add_child(settings)
 	await menu()
 	panel = root.get_node("DeviceSettings")
-	assert(panel._rows.keys() == ["Brightness", "Volume", "Wi-Fi", "Bluetooth", "Cartridge edge smoothing", "Emulation"])
+	assert(panel._rows.keys() == ["Brightness", "Volume", "Wi-Fi", "Bluetooth", "Cartridge edge smoothing", "High res labels", "Emulation"])
 	for index in 3:
 		await tap("ui_down")
 	focus = panel._gui.gui_get_focus_owner()
@@ -465,13 +465,18 @@ func _run() -> void:
 	await menu()
 	panel = root.get_node("DeviceSettings")
 	assert(panel._rows["Cartridge edge smoothing"].disabled and panel._rows["Cartridge edge smoothing"].get_node("Side/Value").text == "Off")
-	for index in 4:
+	for index in 3:
 		await tap("ui_down")
+	var high_res: Button = panel._rows["High res labels"]
+	assert(panel._gui.gui_get_focus_owner() == high_res and high_res.get_node("Side/Value").text == "Off")
+	await tap("ui_accept")
+	assert(settings.values["high_res_labels"] and high_res.get_node("Side/Value").text == "On")
+	await tap("ui_down")
 	assert(panel._gui.gui_get_focus_owner().name == "Emulation")
 	await tap("ui_accept")
 	await button(JOY_BUTTON_B, true)
 	await button(JOY_BUTTON_B, false)
-	assert(panel._sub == null and settings.saves == 4)
+	assert(panel._sub == null and settings.saves == 5)
 	root.remove_meta("socket_cartridge_msaa_paused")
 	settings.mode = Viewport.MSAA_4X
 	await menu()

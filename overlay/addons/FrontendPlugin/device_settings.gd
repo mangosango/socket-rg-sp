@@ -55,6 +55,8 @@ const LEVELS := {"Brightness": ["brightness", 1, 10, 1], "Volume": ["volume", 0,
 const TITLE := "Device Settings"
 const MSAA := "Cartridge edge smoothing"
 const MSAA_KEY := "cartridge_msaa"
+const HIGH_RES := "High res labels"
+const HIGH_RES_KEY := "high_res_labels"
 # The titles of the pages that RetroArch opens from the Cheats row.
 const CHEATS_TITLES := ["Cheats", "Cheat files", "libretro cheat titles"]
 
@@ -232,6 +234,8 @@ func _build() -> void:
 		_settings = get_node_or_null("/root/SettingsManager")
 		if _settings != null and _settings.has_method("cartridge_msaa_mode"):
 			rows.append(MSAA)
+			if ResourceLoader.exists("res://addons/FrontendPlugin/split_label_view.gd"):
+				rows.append(HIGH_RES)
 	rows.append("Emulation")
 	for row_name in rows:
 		_list.add_child(_row(row_name))
@@ -319,10 +323,11 @@ func _row(row_name: String) -> Button:
 		bar.add_theme_stylebox_override("fill", _box(_ink, 7 * _unit))
 		side.add_child(bar)
 		value.custom_minimum_size.x = 150 * _unit
-	elif row_name == MSAA:
+	elif row_name == MSAA or row_name == HIGH_RES:
+		var key := MSAA_KEY if row_name == MSAA else HIGH_RES_KEY
 		row.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
-		row.pressed.connect(func(): _settings.call("set_setting", MSAA_KEY, not _settings.call("get_setting", MSAA_KEY)))
-		if _settings.call("cartridge_msaa_mode") == Viewport.MSAA_DISABLED:
+		row.pressed.connect(func(): _settings.call("set_setting", key, not _settings.call("get_setting", key)))
+		if row_name == MSAA and _settings.call("cartridge_msaa_mode") == Viewport.MSAA_DISABLED:
 			row.disabled = true
 			row.focus_mode = Control.FOCUS_NONE
 	elif not RADIOS.has(row_name):
@@ -398,6 +403,8 @@ func _process(_delta: float) -> void:
 		var level: int = _shown[row_name]
 		_rows[row_name].get_node("Side/Bar").value = level
 		_rows[row_name].get_node("Side/Value").text = "Muted" if row_name == "Volume" and level == 0 else str(level)
+	if _rows.has(HIGH_RES):
+		_rows[HIGH_RES].get_node("Side/Value").text = "On" if _settings.call("get_setting", HIGH_RES_KEY) else "Off"
 	if _rows.has(MSAA):
 		# The watchdog can pause MSAA while the panel is open.
 		var state := "On"

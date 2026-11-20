@@ -391,6 +391,10 @@ func _process(_delta: float) -> void:
     sample["frames_over_20ms_pct"] = 100.0 * (_fps_frame_usec.size() - _fps_frame_usec.bsearch(20000, false)) / _fps_frame_usec.size()
     sample["viewport_3d_draw_cpu_ms"] = RenderingServer.viewport_get_measured_render_time_cpu(get_viewport_rid())
     sample["window_draw_cpu_ms"] = RenderingServer.viewport_get_measured_render_time_cpu(root.get_viewport_rid())
+    if has_meta("socket_split_label_viewport"):
+        var label: SubViewport = get_meta("socket_split_label_viewport")
+        sample["viewport_label"] = [label.size.x, label.size.y]
+        sample["label_draw_cpu_ms"] = RenderingServer.viewport_get_measured_render_time_cpu(label.get_viewport_rid())
     sample["nav_frames"] = _fps_nav_usec.size()
     sample["nav_p95_ms"] = _fps_p95(_fps_nav_usec)
     # The sort for the percentile put the slowest navigation frame last.
@@ -579,6 +583,29 @@ uniform float backdrop_fog_flip = 0.0;
     (RENDER_SCALE, r"^\tvar pixels: = .*\n", "\tvar pixels: = requested.min(native * minf(_scale, _baseos_cap))\n", 1, M),
     (RENDER_SCALE, r"\n+\Z", gd("\n\n" + FPS_PROCESS), 1, 0),
     ]],
+
+    # The old launch flag supplies the default only until the user saves a choice.
+    only(V101, ("scripts/autoload/settings_manager.gd", r'^(\t"cartridge_msaa": true,)$',
+                r'\1\n\t"high_res_labels": OS.get_environment("SOCKET_3D_SPLIT_LABEL") == "1",', 1, M)),
+    only(V101, prepend(RENDER_SCALE, "_on_setting_changed", """\
+    if key == "high_res_labels":
+        _apply()
+""")),
+    only(V101, (RENDER_SCALE, r"^(\tvar pixels: = requested\.min\(native .*\n)", lambda m: m[1] + gd("""\
+    if OS.get_name() == "Linux" and DisplayServer.get_name() != "headless":
+        # Keep the same 3:2 casing projection whether the label pass is on or off.
+        if roundi(native.x) * 2 == roundi(native.y) * 3:
+            pixels = Vector2(3, 2) * maxf(1.0, roundf(minf(pixels.x / 3.0, pixels.y / 2.0)))
+        var split = get_node_or_null("SocketSplitLabel")
+        if SettingsManager.get_setting("high_res_labels"):
+            if split == null:
+                split = load("res://addons/FrontendPlugin/split_label_view.gd").new()
+                split.name = "SocketSplitLabel"
+                add_child(split)
+                split.start(self, _display)
+        elif split != null:
+            split.free()
+"""), 1, M)),
 
     # 0.3.2 draws the UI and 3D view at the 1920x1280 logical size and the
     # AYN Thor bottom screen every frame. Use panel pixels as 0.8.0 does.
@@ -919,6 +946,7 @@ def main(root, project_binary):
     for path, text in files.items():
         with open(f"{root}/{path}", "w", encoding="utf-8") as f:
             f.write(text)
+    return version
 
 
 if __name__ == "__main__":

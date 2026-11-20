@@ -55,20 +55,25 @@ def build_pack(res: Path, overlay: Path, out: Path, decompress=None):
         for shader in shaders:
             (src / shader).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(res / shader, src / shader)
-        patch_socket.main(src, res / "project.binary")
+        version = patch_socket.main(src, res / "project.binary")
         for shader in shaders:
             shutil.copyfile(src / shader, res / shader)
         for script in scripts:
             if (src / script).read_bytes() != decoded[script]:
                 use_source(res / script, src / script)
 
-    for name in PLUGIN_SCRIPTS:
+    # The split helper preloads sticker shaders found only in 0.10.1.
+    split_scripts = ["split_label_view", "split_label_surfaces"] if version == "0.10.1" else []
+    for name in PLUGIN_SCRIPTS + split_scripts:
         script = PLUGIN / f"{name}.gd"
         use_source(res / script, overlay / script)
     controls = res / PLUGIN / "controls"
     shutil.copytree(overlay / PLUGIN / "controls", controls, dirs_exist_ok=True)
     (res / "shaders").mkdir(exist_ok=True)
     shutil.copyfile(overlay / "shaders/display_aa.gdshader", res / "shaders/display_aa.gdshader")
+    if split_scripts:
+        shader = "shaders/split_label_occluder.gdshader"
+        shutil.copyfile(overlay / shader, res / shader)
 
     # The second-screen extension has no Linux AArch64 build.
     thor = res / "addons/AynThor/bin"

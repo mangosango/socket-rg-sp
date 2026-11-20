@@ -1,6 +1,7 @@
 # Opt-in render benchmark of the packed app. It is not a pass/fail test of the pack.
-# One process, one camera, one fixture library (three GBA games, three cartridges in
-# view). Each variant changes one group of settings and then restores the defaults.
+# One camera and one fixture library (five GBA games, three cartridges in view).
+# The default suite changes settings within one process. The opt-in label
+# comparison measures the startup settings of four separate processes.
 #
 # Run on Mesa GLES (software renderer, Docker):
 #   sh tests/app/run_bench_render.sh <pack.pck> <new-directory> [NAME=value ...]
@@ -26,6 +27,7 @@
 #   SOCKET_BENCH_SYNC     1 reads the frame back each frame (forces the GPU to finish)
 #   SOCKET_BENCH_IMAGES   0 does not save a frame image for each variant
 #   SOCKET_BENCH_VSYNC    1 keeps vertical sync on (times then step by 16.7 ms)
+#   SOCKET_BENCH_LABEL_COMPARE  1: opaque scale comparison; 66: animated translucent GBA at 0.66
 #   SOCKET_TEST_ROOT      folder below /tmp for the fixture ROM files (necessary)
 extends SceneTree
 
@@ -122,6 +124,11 @@ func _run() -> void:
 	load("res://scripts/models/emulator_database.gd").store("gba", [{"uniqueId": "gba.ra64.mgba", "name": "mGBA", "acceptedFilenameRegex": "[.]gba$", "amStartArguments": "-n com.retroarch/.Main -e LIBRETRO mgba"}])
 	# A settings change here would reload the scene. The launcher supplies the settings file.
 	var settings = root.get_node("SettingsManager")
+	var label_trial := OS.get_environment("SOCKET_BENCH_LABEL_TRIAL")
+	var requested_scale := OS.get_environment("SOCKET_BENCH_BODY_SCALE").to_float()
+	var requested_split := OS.get_environment("SOCKET_3D_SPLIT_LABEL") == "1"
+	if not label_trial.is_empty() and not is_equal_approx(float(settings.get_setting("render_scale_3d")), requested_scale):
+		return fail("temporary profile has the requested body scale")
 	change_scene_to_file(ProjectSettings.get_setting("application/run/main_scene"))
 	var screen = load("res://scripts/screens/screen.gd")
 	for i in range(40000):
@@ -141,16 +148,25 @@ func _run() -> void:
 	platform.app_id = "gba.ra64.mgba"
 	platform.rom_folder_path = roms
 	manager.add_platform_to_user(manager.current_user, platform)
-	for game_name in ["One", "Two", "Three", "Four", "Five"]:
+	var fixture_games := ["One", "Two", "Three", "Four", "Five"]
+	var finish_id := "translucent" if OS.get_environment("SOCKET_BENCH_FINISH") == "translucent" else "opaque"
+	var animate := not label_trial.is_empty() and finish_id == "translucent"
+	var fixture_meta := {} if label_trial.is_empty() else {"cart_material": finish_id}
+	for game_name in fixture_games:
 		FileAccess.open(platform.rom_folder_path.path_join(game_name + ".gba"), FileAccess.WRITE).close()
 		art.save_png("user://scraped_data/gba/%s_support.png" % game_name)
 		var info := FileAccess.open("user://scraped_data/gba/%s.json" % game_name, FileAccess.WRITE)
-		info.store_string(JSON.stringify({"matched": true, "method": "md5", "game_id": 1, "name": game_name, "platform": "nintendo-game-boy-advance", "region": "World", "texture_url": "", "labels": [], "meta": {}}))
+		info.store_string(JSON.stringify({"matched": true, "method": "md5", "game_id": 1, "name": game_name, "platform": "nintendo-game-boy-advance", "region": "World", "texture_url": "", "labels": [], "meta": fixture_meta}))
 		info.close()
 	await manager.scan_platform_in_user(manager.current_user, platform)
 	home.selected_platform_index = home._get_visible_platforms().find(platform)
 	home.render_carousel()
 	carousel = home.carousel_3d
+	if not label_trial.is_empty():
+		if carousel.games.size() != fixture_games.size(): return fail("all five fixture games are in the carousel")
+		if not animate:
+			carousel.float_amplitude = 0.0
+			carousel.rotation_amplitude = 0.0
 	for i in range(200): await process_frame
 	# A cartridge on each side of the selected one.
 	carousel.next()
@@ -161,6 +177,7 @@ func _run() -> void:
 		quiet = 0 if carousel.get_children().any(func(node): return node is MeshInstance3D and node.material_override) else quiet + 1
 		if quiet >= 30: break
 		await process_frame
+	if not label_trial.is_empty() and quiet < 30: return fail("carousel shader warm-up finishes")
 	if carousel.active_cartridges.size() != 3: return fail("three cartridges are in view: %d" % carousel.active_cartridges.size())
 	# Same pose for each variant.
 	carousel.set_process(false)
@@ -168,13 +185,22 @@ func _run() -> void:
 	view = home.viewport_3d
 	display = view.get("_display")
 	if display == null or not display.material is ShaderMaterial: return fail("the 3D view has the display pass")
-	edge_shader = load("res://shaders/display_aa.gdshader")
-	linear_shader = Shader.new()
-	linear_shader.code = "#define DISPLAY_LINEAR\n" + edge_shader.code
-	lights = view.find_children("*", "Light3D", true, false)
-	environment = view.find_children("*", "WorldEnvironment", true, false)[0].environment
-	environment_default = {"tonemap": environment.tonemap_mode, "adjust": environment.adjustment_enabled}
+	lights = view.find_children("*", "Light3D", true, false).filter(func(light): return light.get_viewport() == view)
+	if label_trial.is_empty():
+		edge_shader = load("res://shaders/display_aa.gdshader")
+		linear_shader = Shader.new()
+		linear_shader.code = "#define DISPLAY_LINEAR\n" + edge_shader.code
+		environment = view.find_children("*", "WorldEnvironment", true, false)[0].environment
+		environment_default = {"tonemap": environment.tonemap_mode, "adjust": environment.adjustment_enabled}
 	for cart in carousel.active_cartridges.values():
+		if not label_trial.is_empty():
+			if cart.game.platform_id != "gba" or cart.resolve_finish_id(cart.game.custom_material_index) != finish_id:
+				return fail("label comparison requires " + finish_id + " GBA cartridges")
+			# Read the authored label, not any additional surfaces created by the split renderer.
+			var cover = cart.get_cover_material()
+			if not cover is ShaderMaterial or not cover.get_shader_parameter("artwork_texture") is Texture2D:
+				return fail("each visible paper label samples the fixture artwork")
+			continue
 		for mesh in cart.casing_meshs:
 			if mesh.get_surface_override_material_count() > 0:
 				casings.append([mesh, mesh.get_surface_override_material(0), cart])
@@ -183,7 +209,7 @@ func _run() -> void:
 				var material = mesh.get_active_material(surface)
 				if material is ShaderMaterial and material.shader and material.shader.resource_path.ends_with("paper_sticker.gdshader"):
 					labels.append([mesh, surface, material, mesh.get_surface_override_material(surface)])
-	var bank := global_class("CartFinishBank")
+	var bank := global_class("CartFinishBank") if label_trial.is_empty() else null
 	if bank != null:
 		var at := VARIANTS.find_custom(func(variant): return variant[0] == "label_holo_foil")
 		for finish in bank.all():
@@ -202,14 +228,20 @@ func _run() -> void:
 	var frames := maxi(OS.get_environment("SOCKET_BENCH_FRAMES").to_int(), 0) if OS.has_environment("SOCKET_BENCH_FRAMES") else 60
 	var rounds := OS.get_environment("SOCKET_BENCH_ROUNDS").to_int() if OS.has_environment("SOCKET_BENCH_ROUNDS") else 5
 	var sync := OS.get_environment("SOCKET_BENCH_SYNC") == "1"
-	write({"type": "run", "renderer": RenderingServer.get_video_adapter_name(), "vendor": RenderingServer.get_video_adapter_vendor(), "api": RenderingServer.get_video_adapter_api_version(),
-		"window": [root.size.x, root.size.y], "vsync": DisplayServer.window_get_vsync_mode() != DisplayServer.VSYNC_DISABLED, "frames": frames, "rounds": rounds, "sync": sync, "cartridges": carousel.active_cartridges.size(), "finishes": finishes.keys(), "label_surfaces": labels.size(),
+	if not label_trial.is_empty():
+		if frames < 1 or rounds < 1: return fail("label comparison needs positive frames and rounds")
+		variants = [[label_trial, null]]
+	var run := {"type": "run", "renderer": RenderingServer.get_video_adapter_name(), "vendor": RenderingServer.get_video_adapter_vendor(), "api": RenderingServer.get_video_adapter_api_version(),
+		"window": [root.size.x, root.size.y], "vsync": DisplayServer.window_get_vsync_mode() != DisplayServer.VSYNC_DISABLED, "frames": frames, "rounds": rounds, "sync": sync, "cartridges": carousel.active_cartridges.size(), "finishes": finishes.keys(), "label_surfaces": labels.size() if label_trial.is_empty() else carousel.active_cartridges.size(),
 		# The startup profile of this run.
 		"shader_startup": root.get_meta("socket_shader_startup_stats", {}),
 		"settings": ["dark_mode", "theme_id", "font_id", "background_pattern", "background_gradient", "render_scale_3d", "max_fps", "ui_scale"].map(func(key): return [key, settings.get_setting(key)]),
 		"environment": ["SOCKET_3D_CAP", "SOCKET_3D_FILTER", "SOCKET_3D_SHADOWS", "SOCKET_3D_MSAA", "SOCKET_UI_SNAP", "SOCKET_UI_FONT", "SOCKET_FPS_DIAGNOSTICS"].map(func(key): return [key, OS.get_environment(key)]),
 		"started": {"viewport_3d": [view.size.x, view.size.y], "msaa_3d": view.msaa_3d, "linear": display.material.shader.code.begins_with("#define DISPLAY_LINEAR"),
-			"shadows": lights.filter(func(light): return light.shadow_enabled).map(func(light): return light.directional_shadow_mode if light is DirectionalLight3D else -1)}})
+			"shadows": lights.filter(func(light): return light.shadow_enabled).map(func(light): return light.directional_shadow_mode if light is DirectionalLight3D else -1)}}
+	if not label_trial.is_empty():
+		run.merge({"requested_mode": label_trial, "requested_body_scale": requested_scale, "requested_split_label": requested_split, "fixture": finish_id + "_gba", "animated": animate, "games": fixture_games})
+	write(run)
 
 	# Measure the untouched startup profile before any trial changes the viewport.
 	var trials := []
@@ -223,40 +255,73 @@ func _run() -> void:
 		var variant: Array = trial[1]
 		if variant[1] != null:
 			await apply(DEFAULTS.merged(variant[1], true))
+		if not label_trial.is_empty():
+			var label := split_label_viewport()
+			if label != null:
+				RenderingServer.viewport_set_measure_render_time(label.get_viewport_rid(), true)
 		# The first frames after a change can compile shaders or allocate targets.
 		for i in range(8): await process_frame
 		var times := PackedFloat64Array()
+		var steady_split_frames := 0
+		if animate:
+			carousel.set("_time", 0.0)
 		var last := Time.get_ticks_usec()
 		for i in range(frames):
+			if animate:
+				# Same 60 Hz tilt poses in every trial, independent of actual frame rate.
+				carousel._process(1.0 / 60.0)
 			await process_frame
 			if sync:
 				root.get_texture().get_image()
 			var now := Time.get_ticks_usec()
 			times.append((now - last) / 1000.0)
 			last = now
+			if not label_trial.is_empty() and view.get_meta("socket_split_label_active", false): steady_split_frames += 1
 		times.sort()
 		var record := {"type": "time", "variant": variant[0], "round": round, "viewport_3d": [view.size.x, view.size.y], "msaa_3d": view.msaa_3d}
 		if frames > 0:
-			record.merge({"median_ms": times[frames / 2], "p95_ms": times[ceili(frames * 0.95) - 1], "min_ms": times[0], "max_ms": times[-1]})
+			var middle := frames / 2
+			var median := times[middle]
+			if not label_trial.is_empty() and frames % 2 == 0: median = (times[middle - 1] + median) / 2.0
+			record.merge({"median_ms": median, "p95_ms": times[ceili(frames * 0.95) - 1], "min_ms": times[0], "max_ms": times[-1]})
 		record["draw_calls"] = Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)
 		record["primitives"] = Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)
-		for part in [["3d", Viewport.RENDER_INFO_TYPE_VISIBLE, view], ["shadow", Viewport.RENDER_INFO_TYPE_SHADOW, view], ["canvas", Viewport.RENDER_INFO_TYPE_CANVAS, root]]:
-			record[part[0] + "_draw_calls"] = part[2].get_render_info(part[1], Viewport.RENDER_INFO_DRAW_CALLS_IN_FRAME)
-			record[part[0] + "_primitives"] = part[2].get_render_info(part[1], Viewport.RENDER_INFO_PRIMITIVES_IN_FRAME)
-		# Timer queries. A driver without them gives zero.
-		record["view3d_gpu_ms"] = RenderingServer.viewport_get_measured_render_time_gpu(view.get_viewport_rid())
-		record["view3d_cpu_ms"] = RenderingServer.viewport_get_measured_render_time_cpu(view.get_viewport_rid())
-		record["root_gpu_ms"] = RenderingServer.viewport_get_measured_render_time_gpu(root.get_viewport_rid())
-		record["root_cpu_ms"] = RenderingServer.viewport_get_measured_render_time_cpu(root.get_viewport_rid())
+		add_render_info(record, "3d", view, Viewport.RENDER_INFO_TYPE_VISIBLE)
+		add_render_info(record, "shadow", view, Viewport.RENDER_INFO_TYPE_SHADOW)
+		add_render_info(record, "canvas", root, Viewport.RENDER_INFO_TYPE_CANVAS)
+		add_view_timing(record, "view3d", view)
+		add_view_timing(record, "root", root)
 		record["process_ms"] = Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
-		write(record)
+		if not label_trial.is_empty():
+			var active := bool(view.get_meta("socket_split_label_active", false))
+			var label := split_label_viewport()
+			if active and label == null: return fail("active split has a label viewport")
+			record.merge({"split_label_active": active, "split_label_fallback": requested_split and not active, "viewport_label": null,
+				"steady_split_active_frames": steady_split_frames})
+			if label != null:
+				record["viewport_label"] = [label.size.x, label.size.y]
+				var rect = display.material.get_shader_parameter("label_rect")
+				var span := Vector2(rect.z, rect.w) if rect is Vector4 else Vector2.ONE
+				record["label_region_px"] = [roundi(root.size.x * span.x), roundi(root.size.y * span.y)]
+				record["label_msaa_3d"] = label.msaa_3d
+				add_render_info(record, "label_3d", label, Viewport.RENDER_INFO_TYPE_VISIBLE)
+				add_render_info(record, "label_shadow", label, Viewport.RENDER_INFO_TYPE_SHADOW)
+				add_view_timing(record, "label", label)
+		else:
+			write(record)
 		if round == 0 and OS.get_environment("SOCKET_BENCH_IMAGES") != "0":
 			await RenderingServer.frame_post_draw
 			root.get_texture().get_image().save_png(output.path_join("frame-%s.png" % variant[0]))
+		if not label_trial.is_empty():
+			var navigation := await measure_navigation(sync)
+			if navigation.is_empty(): return fail("navigation returns to the fixture pose")
+			record.merge(navigation)
+			write(record)
 
-	if OS.get_environment("SOCKET_BENCH_QUALITY") != "0":
-		await quality(variants.filter(func(variant): return variant[1] != null), output)
-	await apply(DEFAULTS)
+	if label_trial.is_empty():
+		if OS.get_environment("SOCKET_BENCH_QUALITY") != "0":
+			await quality(variants.filter(func(variant): return variant[1] != null), output)
+		await apply(DEFAULTS)
 	log_file.close()
 	# This object lives longer than the scene. Release the materials, the
 	# textures and the nodes that it holds before the exit.
@@ -274,6 +339,44 @@ func _run() -> void:
 	linear_shader = null
 	print("PASS: benchmark wrote results.jsonl")
 	quit()
+
+func split_label_viewport() -> SubViewport:
+	if view.get_meta("socket_split_label_active", false) and view.has_meta("socket_split_label_viewport"):
+		return view.get_meta("socket_split_label_viewport") as SubViewport
+	return null
+
+func add_render_info(record: Dictionary, key: String, viewport: Viewport, kind: Viewport.RenderInfoType) -> void:
+	record[key + "_draw_calls"] = viewport.get_render_info(kind, Viewport.RENDER_INFO_DRAW_CALLS_IN_FRAME)
+	record[key + "_primitives"] = viewport.get_render_info(kind, Viewport.RENDER_INFO_PRIMITIVES_IN_FRAME)
+
+func add_view_timing(record: Dictionary, key: String, viewport: Viewport) -> void:
+	# Timer queries. A driver without them gives zero.
+	record[key + "_gpu_ms"] = RenderingServer.viewport_get_measured_render_time_gpu(viewport.get_viewport_rid())
+	record[key + "_cpu_ms"] = RenderingServer.viewport_get_measured_render_time_cpu(viewport.get_viewport_rid())
+
+func measure_navigation(sync: bool) -> Dictionary:
+	var times := PackedFloat64Array()
+	var split_frames := 0
+	var initial: int = carousel.scroll_position
+	carousel.set_process(true)
+	# Follow real carousel transitions, including the first frame after each step.
+	# The app's navigation diagnostics use the same half-second window per input.
+	for direction in [1, 1, 1, -1, -1, -1]:
+		var last := Time.get_ticks_usec()
+		var until := last + 500000
+		carousel.jump(direction)
+		while last < until:
+			await process_frame
+			if sync:
+				root.get_texture().get_image()
+			var now := Time.get_ticks_usec()
+			times.append((now - last) / 1000.0)
+			last = now
+			if view.get_meta("socket_split_label_active", false): split_frames += 1
+	carousel.set_process(false)
+	if carousel.scroll_position != initial or carousel.active_cartridges.size() != 3: return {}
+	times.sort()
+	return {"nav_frames": times.size(), "nav_p95_ms": times[ceili(times.size() * 0.95) - 1], "nav_worst_ms": times[-1], "nav_split_active_frames": split_frames}
 
 func apply(knobs: Dictionary) -> void:
 	# Each named trial selects its own resolution independently of the saved slider.

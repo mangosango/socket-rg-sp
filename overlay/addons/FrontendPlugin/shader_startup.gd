@@ -201,6 +201,7 @@ func _warm() -> void:
 	# Leave the draw callback: _draw must not start a draw from inside a draw.
 	await _tree.process_frame
 	var seen := {}
+	var split = _viewport.get_node_or_null("SocketSplitLabel")
 	for platform_id in Manager.db.platforms:
 		var script = Manager.db.get_platform(platform_id)
 		var model = script.new()
@@ -241,6 +242,16 @@ func _warm() -> void:
 			for index in cart.enabled_label_styles.size():
 				cart.update_label_style(index + 1)
 				await _draw_cart(cart)
+			if split != null and platform_id == "gba":
+				# Warm the extra target, occluder and display variant without touching library art.
+				var cover := cart.get_cover_material().duplicate() as ShaderMaterial
+				var art := Image.create_empty(2, 2, false, Image.FORMAT_RGBA8)
+				art.fill(Color.WHITE)
+				cover.set_shader_parameter("artwork_texture", ImageTexture.create_from_image(art))
+				cart.set_cover_material(cover)
+				split.warmup(cart)
+				await _draw_cart(cart)
+				split.warmup(null)
 			cart.free()
 	_sets = seen.size()
 	_tree.root.set_meta("socket_shader_startup_warmed", not seen.is_empty())

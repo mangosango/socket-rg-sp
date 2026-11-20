@@ -24,6 +24,11 @@ render_mode unshaded, blend_premul_alpha;
 const float EMPTY = 0.004;
 const float OPAQUE = 0.996;
 
+#ifdef DISPLAY_SPLIT_LABEL
+uniform sampler2D native_label : filter_nearest, repeat_disable;
+uniform vec4 label_rect = vec4(0.0, 0.0, 1.0, 1.0);
+#endif
+
 varying vec4 display_modulate;
 
 void vertex() {
@@ -34,7 +39,7 @@ void fragment() {
 	vec4 center = texture(TEXTURE, UV);
 	vec4 filtered = center;
 	// DISPLAY_LINEAR is the variant with the linear read only.
-#ifndef DISPLAY_LINEAR
+#if !defined(DISPLAY_LINEAR) || defined(DISPLAY_SPLIT_EDGE)
 	// Derivatives are not defined in a branch that only some pixels take.
 	// The alpha change of the linear read, with the sign in texture directions.
 	vec2 slope = vec2(dFdx(center.a) * sign(dFdx(UV.x)), dFdy(center.a) * sign(dFdy(UV.y)));
@@ -43,6 +48,7 @@ void fragment() {
 	float texels = clamp(abs(dFdx(UV.x)) / pixel.x, 0.25, 1.0);
 	vec2 position = UV / pixel;
 	vec2 texel = floor(position) + 0.5;
+#ifndef DISPLAY_SPLIT_EDGE
 	if (texels > 0.99) {
 		// Panel size: the linear read is one texel, and a derivative shows
 		// the change in one of two pixel columns and rows only. Read the four
@@ -57,6 +63,7 @@ void fragment() {
 			slope = vec2(north_east + south_east - north_west - south_west, south_west + south_east - north_west - north_east);
 		}
 	}
+#endif
 	if (max(abs(slope.x), abs(slope.y)) > 0.003) {
 		vec2 inside = position - texel;
 		// The direction into the cartridge, along the axis with the larger change.
@@ -78,9 +85,15 @@ void fragment() {
 			vec2 border = (texel + normal * 0.5) * pixel;
 			vec2 step_size = tangent * pixel;
 			vec2 at_1 = vec2(textureLod(TEXTURE, border - 1.5 * step_size, 0.0).a, textureLod(TEXTURE, border + 1.5 * step_size, 0.0).a) - 0.5;
+			vec2 end_1 = step(vec2(0.125), abs(at_1));
+#ifdef DISPLAY_SPLIT_EDGE
+			// The upscaled body already has bilinear coverage. Fit the nearest step
+			// only: two tangent reads rather than six, and no panel-size corner probes.
+			vec2 reach = mix(vec2(4.0), 2.5 - abs(at_1) * 4.0, end_1);
+			vec2 ends = at_1;
+#else
 			vec2 at_3 = vec2(textureLod(TEXTURE, border - 3.5 * step_size, 0.0).a, textureLod(TEXTURE, border + 3.5 * step_size, 0.0).a) - 0.5;
 			vec2 at_7 = vec2(textureLod(TEXTURE, border - 7.5 * step_size, 0.0).a, textureLod(TEXTURE, border + 7.5 * step_size, 0.0).a) - 0.5;
-			vec2 end_1 = step(vec2(0.125), abs(at_1));
 			vec2 end_3 = step(vec2(0.125), abs(at_3));
 			vec2 end_7 = step(vec2(0.125), abs(at_7));
 			// The distance to each end of the step, in texels. The nearest read
@@ -90,6 +103,7 @@ void fragment() {
 			reach = mix(reach, 2.5 - abs(at_1) * 4.0, end_1);
 			// The sign shows which of the two rows continues after the end.
 			vec2 ends = mix(mix(at_7, at_3, end_3), at_1, end_1);
+#endif
 			float along = dot(inside, tangent);
 			vec2 to_end = reach + vec2(along, -along);
 			float nearest = to_end.x < to_end.y ? ends.x : ends.y;
@@ -101,6 +115,14 @@ void fragment() {
 			// Premultiplied color: the color of the cartridge times the new alpha.
 			filtered = vec4(center.a > 0.45 ? center.rgb / center.a : material.rgb, 1.0) * cover;
 		}
+	}
+#endif
+#ifdef DISPLAY_SPLIT_LABEL
+	// Both targets store premultiplied color. Filter the casing, never the artwork.
+	vec2 local = (UV - label_rect.xy) / label_rect.zw;
+	if (all(greaterThanEqual(local, vec2(0.0))) && all(lessThan(local, vec2(1.0)))) {
+		vec4 label = texture(native_label, local);
+		filtered = label + filtered * (1.0 - label.a);
 	}
 #endif
 	// The transparent GLES viewport stores premultiplied color.

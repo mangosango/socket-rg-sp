@@ -15,10 +15,10 @@ TOOLS = ('build_pack.py', 'gdc2gd.py', 'patch-socket.py', 'pack.py')
 PLUGIN = 'overlay/addons/FrontendPlugin/'
 OVERLAY = [PLUGIN + name + '.gd' for name in (
     'artwork', 'bluetooth_audio', 'bluetooth_settings', 'controller_dialog', 'controls_hud',
-    'device_settings', 'emulation_settings', 'settings_form', 'folder_picker', 'frontend_bridge', 'game_overlay', 'shader_startup', 'wifi_settings',
+    'device_settings', 'emulation_settings', 'settings_form', 'folder_picker', 'frontend_bridge', 'game_overlay', 'shader_startup', 'split_label_view', 'split_label_surfaces', 'wifi_settings',
 )] + [PLUGIN + 'controls/' + name for name in (
     'LICENSE.txt', 'README.txt', 'brightness.png', 'temperature.png', 'volume-zero.png', 'volume.png',
-)] + ['overlay/shaders/display_aa.gdshader']
+)] + ['overlay/shaders/display_aa.gdshader', 'overlay/shaders/split_label_occluder.gdshader']
 
 
 def source(path):
