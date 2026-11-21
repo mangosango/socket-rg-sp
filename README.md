@@ -1,211 +1,24 @@
 # Socket for the RG SP
 
+Flip through a shelf of Game Boy, Game Boy Color and Game Boy Advance cartridges on your Anbernic RG SP. Pick a game and play. Close the lid mid-dungeon and pick up where you left off.
+
 <p align="center">
-  <img src="docs/media/demo.webp" width="640" alt="Socket running on an RG SP: browsing the game library and starting a game">
+  <img src="docs/media/demo.webp" width="640" alt="Browsing the cartridge library in Socket and launching a game on the RG SP">
 </p>
 
-Bring the [Socket](https://www.patreon.com/cw/SocketLauncher) game launcher
-to your **Anbernic RG SP** with
-[BaseOS](https://github.com/pvaibhav/BaseOS). Heavily inspired by [Slot](https://github.com/BrandonKowalski/slot).
+**[Open the browser installer](https://mangosango.github.io/socket-rg-sp/)** · [Install guide](docs/web-converter.md) · [Controls](docs/controls.md)
 
-This port is built and tested for the RG SP. Other Anbernic H700 devices may
-work, but are untested. Rotated panels, such as the RG28XX, are not supported.
-Only GB, GBC and GBA are supported. Other systems may work, but are untested.
+Play offline, or connect to Wi-Fi to download cover art and earn RetroAchievements in supported games. Hold **L2** to rewind when enabled, **R2** to fast-forward, or **MENU** for a second to save your place and return to the shelf.
 
-> [!IMPORTANT]
-> This repository contains no Socket code or assets. You'll need your own
-> Socket APK. The build reads it locally on your computer and creates the card
-> files. Do not share the `dist/` folder, because `socket.pck` contains
-> Socket.
+## Get playing
 
-This project is not affiliated with or endorsed by the Socket developers.
+1. **Prepare your card.** Back it up first: flashing [BaseOS](https://github.com/pvaibhav/BaseOS/wiki/BaseOS-Install-Guide) erases it. Use BaseOS in slot TF1 and one frontend per card.
+2. **Make your install ZIP.** Open the installer in a desktop browser and drop in your own [Socket APK](https://www.patreon.com/cw/SocketLauncher) ([supported versions](docs/socket-versions.md): 0.10.1, 0.8.0 and 0.3.2). Conversion happens on your computer; the ZIP includes the mGBA emulator.
+3. **Copy, don’t flash.** Extract `socket-baseos.zip` and merge its contents into the root of the `BASEOS` volume. Add your own unpacked games to `Games/GB/`, `Games/GBC/` or `Games/GBA/`.
+4. **Find your cartridges.** Eject the card, boot the RG SP and choose **Scan** in each platform’s editor. No account or Wi-Fi needed.
 
-## Requirements
+Keep the generated ZIP private: it contains assets from your copy of Socket and may contain credentials. No Socket assets or games are distributed here.
 
-- An RG SP with BaseOS on the card in slot TF1.
-- A Socket APK, version 0.10.1, 0.8.0 or 0.3.2. Version 0.3.2 is the last free
-  version. See [Socket versions](docs/socket-versions.md).
-- A desktop browser for the [web installer](docs/web-converter.md). It supplies the RG SP engine, RetroArch and the mGBA core for GB, GBC and GBA. You supply your own games.
-- **Manual build only:** macOS or Linux with Docker (AArch64 Linux containers), a C compiler, OpenSSL libcrypto, Python 3, zstd, unzip and patch. The manual `build.sh` path still requires an AArch64 libretro core.
+[Setup & troubleshooting](docs/setup.md) · [Port documentation](docs/README.md) · [License](LICENSE) · [Credits](docs/licenses.md)
 
-## Build
-
-For a first install, use the [browser installer](docs/web-converter.md) and skip to **Install** below. You do not need a compiler, an existing Socket card, or a separate core download.
-
-To build the port manually instead:
-
-1. Point the build at your APK:
-
-   ```sh
-   ./build.sh ~/Downloads/socket_release_0.10.1.apk
-   ```
-
-2. Your card files will be in `dist/`.
-
-The first build compiles Godot and RetroArch. Expect it to take a while.
-
-## Install
-
-1. If BaseOS is not installed, follow the [BaseOS installation
-   guide](https://github.com/pvaibhav/BaseOS/wiki/BaseOS-Install-Guide) to install
-   it on the card for slot TF1. Back up the card first: flashing erases it.
-2. Turn off the RG SP and mount the visible `BASEOS` volume (or a dedicated frontend card). Use one frontend per card. Back up an existing card first: `System/launch_frontend.sh` will be replaced, and a different frontend's `System/frontend` binary takes priority over that script.
-3. Unzip `socket-baseos.zip` on your computer. **Copy the extracted contents to the card root**, merging directories rather than replacing or deleting them. Check that `System/launch_frontend.sh` is directly under the root, not inside a `socket-baseos/` folder. Do not copy the unopened ZIP or reflash the card.
-4. Add your own unpacked `.gb`, `.gbc` and `.gba` games in `Games/GB/`, `Games/GBC/` and `Games/GBA/`. The ZIP already includes mGBA; no core or BIOS download is needed for normal play. **Manual build only:** copy the contents of `dist/` instead of the ZIP and supply `System/socket/cores/mgba_libretro.so` yourself.
-5. Eject the card, put it back in the RG SP and power on. On a fresh card the launcher prepares the platform and emulator entries. Select **Scan** in each platform's editor to find your games; Wi-Fi and a Mac are not required. Existing libraries are not reset.
-
-To add more games later, copy the ROMs and scan again. Socket shows only emulators that have a core in `System/socket/cores/`.
-An on-device scan loads cached media and downloads missing artwork when Wi-Fi is connected.
-
-## Connect to Wi-Fi and enable RetroAchievements
-
-1. In Socket, press **MENU**. Open **Wi-Fi**, choose your network
-   or enter its name, type its password with the controller, then select **Join**.
-   Socket saves one WPA2-Personal network. The network must supply an address
-   through DHCP. You can also copy `Config/wifi.txt.example` to
-   `Config/wifi.txt` on the card and enter the name and password there.
-2. Wait for the Wi-Fi indicator. Open the platform editor,
-   select a ROM folder, and choose **Scan**. Test with a game that has no cover.
-   A downloaded cover stays on the card for offline use.
-3. In the launcher or during a game, open **MENU → Emulation → Set username and password**.
-   Enter your RetroAchievements login and choose **Save account**. Check that
-   **RetroAchievements** is **On**, then launch a supported GB, GBC or GBA game
-   with **mGBA** while connected. Changes take effect on the next launch. The
-   first successful sign-in replaces the password on the card with a token.
-   To switch accounts or replace an expired token, use the same form. Manual
-   setup via `Config/retroachievements.txt.example` is still supported.
-4. For progress and badges in Socket's achievement panel, enter your username
-   and RetroAchievements **Web API key** in the panel. The gameplay login token
-   and the Web API key have different purposes.
-
-Achievements use softcore mode so rewind, save states and resume work. An
-offline launch still starts the game. Relaunch it after Wi-Fi connects to
-start an achievement session. Reconnect before quitting if the connection
-drops during a session. Switch **RetroAchievements** off to disable gameplay
-achievements without deleting the saved login. To remove the saved Wi-Fi credentials, use **Forget**
-in Device Settings. Treat the card and its backups as private because they
-can contain Wi-Fi and account credentials.
-
-Set rewind separately for GB, GBC and GBA in **MENU → Emulation** in the
-launcher. During a game, **MENU → Game → Gameplay → Rewind** applies immediately
-and saves the preference for the current platform.
-
-## Prepare the library (macOS only)
-
-`tools/setup-card.py` adds the GB, GBC and GBA platforms for the `Games/`
-folders. It scans unpacked `.gb`, `.gbc` and `.gba` files. If the card has
-Slot's mGBA or gpSP core in `System/`, the tool copies it to
-`System/socket/cores/`.
-This is optional desktop preparation for scanning or fetching artwork, not a first-boot prerequisite. When you add more games, scan on the RG SP or run the tool again on your computer.
-
-Missing metadata or artwork does not hide games from the homescreen.
-Socket uses the ROM file name without its extension when metadata is missing and
-shows a cartridge without downloaded artwork. The library and emulator
-records must still be on the card.
-
-1. Turn off the RG SP. Mount its card on the Mac.
-2. Preview the changes without writing anything:
-
-   ```sh
-   python3 tools/setup-card.py --dry-run /Volumes/BASEOS
-   ```
-
-3. Prepare the library, metadata and artwork with your own Socket APK:
-
-   ```sh
-   python3 tools/setup-card-from-apk.py ~/Downloads/socket_release_0.10.1.apk /Volumes/BASEOS
-   ```
-
-   You can also explicitly set `SOCKET_API_KEY` to an authorized Socket GamesDB key
-   (this is specific to Socket, not a standard GamesDB key), then run:
-
-   ```sh
-   python3 tools/setup-card.py /Volumes/BASEOS
-   ```
-
-   If you want to avoid scraping, prepare the library without downloads.
-   This command needs no API key or network access. After you run it, games
-   without cached metadata or artwork will still appear on the homescreen:
-
-   ```sh
-   python3 tools/setup-card.py --scan-only /Volumes/BASEOS
-   ```
-
-4. Check the report before you eject the card. Confirm that `scanned`
-   includes your games and resolve entries in `failures`. Entries in
-   `unmatched` have no service match. These games still appear without
-   downloaded media.
-
-Before replacing a file, the tool backs it up as `<file>.bak-<time>`. To
-restore a file, copy its backup over it. To pick up interrupted downloads,
-run the command again. Downloads need `curl` 8.4 or later.
-
-## Controls
-
-| Control | Action |
-|---------|--------|
-| Volume buttons | Change the volume in steps of 5. Socket and games use the same level. |
-| SELECT + Up or Down | Change the brightness. |
-| SELECT + Left or Right | Change the screen temperature. Right makes the screen warmer. |
-| POWER, or close the lid | Sleep. In a game, the device first saves a resume state. |
-| Hold POWER for 1 second | Shut down. In a game, the device first saves a resume state. |
-| Tap MENU | Open or close Device Settings. In a game, choose **Game** for emulator controls or **Cheats** for cheat codes. |
-| Hold MENU for 1 second (in a game) | Save a state and go back to Socket. |
-| Hold L2 or R2 (in a game) | Rewind or fast-forward. |
-
-### File dialogs
-
-Music, artwork and native folder dialogs use native-resolution text and fit the
-screen independently of Socket's UI scale, including nested confirmations.
-They support the controller:
-
-- Up/Down moves through files; confirm opens a folder or file.
-- Left goes to **Cancel**; Right goes to **Open/Select** when a selection is valid.
-- Up/Down from those buttons returns to the file list.
-- L1/R1 moves between all controls, including filters and path fields.
-- Y goes to the parent folder; X marks/unmarks files in the music picker.
-- Cancel closes the topmost dialog and restores the previous focus.
-
-The ROM/save-folder picker also has **Save this folder** and **Cancel** as
-its first two entries; Left goes to the parent folder. Face-button actions
-follow Socket's configured controller layout.
-
-After three minutes of sleep, the device shuts down. After a shutdown in a
-game, Socket opens that game again at the next start. For the details, see
-[Controls, sleep and power](docs/controls.md).
-
-## Troubleshooting
-
-Look in the card's `Logs` folder:
-
-- `socket.log`: Socket
-- `socket-game.log`: RetroArch and game start
-- `socket-hardware.log`: buttons, sleep and power
-
-If the build stops at `patch-socket`, your APK uses an unsupported Socket
-version.
-
-## Contributor setup
-
-Install [Gitleaks](https://github.com/gitleaks/gitleaks) v8.30 or newer
-(`brew install gitleaks` on macOS), then enable the tracked Git hooks once per clone:
-
-```sh
-git config --local core.hooksPath .githooks
-```
-
-The pre-commit hook scans staged changes, not unstaged files or commit history.
-It blocks the commit on a finding or scanner error and redacts secrets in its output.
-
-## More information
-
-See [docs](docs/README.md) for how the port works, RetroArch settings,
-rendering changes and development.
-
-## License
-
-This project uses the GNU General Public License, version 3 or later. See
-[LICENSE](LICENSE). It contains code from Godot, RetroArch, Slot and Nerd
-Fonts. See [Licenses](docs/licenses.md).
-
-Socket is not covered by this license.
+An unofficial port inspired by [Slot](https://github.com/BrandonKowalski/slot), not affiliated with the Socket developers. The project’s GPL license does not cover Socket.
